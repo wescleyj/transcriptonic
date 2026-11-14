@@ -28,6 +28,8 @@
             font-size: 1rem;
             border: 1px solid #2a9aca33;
             border-radius: 0.5rem;
+            max-width: 900px;
+            width: 90vw;
         }
 
         dialog::backdrop {
@@ -35,7 +37,8 @@
             opacity: 0.75;
         }
 
-        #later-button {
+        #later-button,
+        .btn-outline {
             background: transparent;
             color: #2A9ACA;
             border: 1px solid #2A9ACA;
@@ -56,14 +59,13 @@
             overflow-x: auto;
         }
 
-        @media screen and (max-width: 600px) {
+        @media screen and (max-width: 800px) {
             .grid-container {
                 grid-template-columns: 1fr;
             }
         }
 
         .card {
-            /* grid-column: 1; */
             background: rgba(255, 255, 255, 0.1);
             padding: 1.5rem 0rem;
             border-radius: 8px;
@@ -76,13 +78,6 @@
             margin-bottom: 1rem;
         }
 
-        .webhook-section-heading {
-            display: flex;
-            gap: 0.5rem;
-            align-items: start;
-        }
-
-        /* Custom scrollbar styling */
         ::-webkit-scrollbar {
             width: 8px;
             height: 6px;
@@ -106,19 +101,18 @@
             background: #2a9aca1a;
             margin-bottom: 1.5rem;
             margin-top: -1.5rem;
+        }
 
-            p {
-                margin: 0;
-            }
+        .webhook-header p {
+            margin: 0;
         }
 
         .form-field {
             padding: 0px 1.5rem;
         }
 
-
         .form-field:not(:last-of-type) {
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
 
         hr {
@@ -130,6 +124,7 @@
             margin-top: 0.5rem;
             display: flex;
             align-items: center;
+            gap: 0.5rem;
         }
 
         label {
@@ -143,21 +138,33 @@
             font-size: small;
         }
 
-        input[type="url"] {
+        input[type="url"],
+        input[type="password"],
+        input[type="text"],
+        select {
             width: 100%;
-            padding: 0.45rem;
+            padding: 0.5rem 0.6rem;
             border: 1px solid #2A9ACA;
-            border-radius: 4px 0px 0px 4px;
+            border-radius: 4px;
             background: rgba(255, 255, 255, 0.1);
-            color: #C0C0C0;
+            color: #E0E0E0;
             font-family: "TASA Explorer", sans-serif;
             box-sizing: border-box;
+        }
+
+        #webhook-url {
+            border-radius: 4px 0px 0px 4px;
+        }
+
+        select option {
+            background: #071f29;
+            color: #E0E0E0;
         }
 
         .checkbox-group {
             display: flex;
             gap: 8px;
-            margin-bottom: -0.5rem;
+            align-items: center;
         }
 
         input[type="checkbox"] {
@@ -236,12 +243,6 @@
             white-space: pre;
         }
 
-        .meetings-section {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
         #recover-last-meeting {
             background: transparent;
             color: #2A9ACA;
@@ -266,7 +267,7 @@
 
         th,
         td {
-            padding: 1rem 1.5rem;
+            padding: 1rem 1.25rem;
             text-align: left;
             border-bottom: 1px solid #2a9aca33;
         }
@@ -316,6 +317,21 @@
             font-size: smaller;
         }
 
+        .action-pill-btn {
+            background: transparent;
+            color: #2A9ACA;
+            border: 1px solid #2A9ACA;
+            padding: 0.25rem 0.55rem;
+            font-size: 0.78rem;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .action-pill-btn.primary {
+            background: #2A9ACA;
+            color: #071f29;
+        }
+
         .card-heading {
             margin: 0rem 1.5rem 1.25rem 1.5rem;
             font-weight: bold;
@@ -345,14 +361,14 @@
             color: #2A9ACA;
             font-weight: bold;
             text-decoration: none;
+        }
 
-            img {
-                margin-top: 0.1rem;
-            }
+        .integration-guide img {
+            margin-top: 0.1rem;
+        }
 
-            p {
-                margin: 0;
-            }
+        .integration-guide p {
+            margin: 0;
         }
 
         #show-all {
@@ -372,13 +388,47 @@
         }
 
         section {
-            margin-bottom: 5rem;
+            margin-bottom: 4rem;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            gap: 1rem;
+        }
+
+        .modal-scroll {
+            max-height: 65vh;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 6px;
+            border: 1px solid #2a9aca33;
+        }
+
+        .transcript-entry {
+            margin-bottom: 0.9rem;
+        }
+
+        .transcript-entry-meta {
+            font-size: 0.8rem;
+            color: #2A9ACA;
+            font-weight: bold;
+        }
+
+        #ata-preview-frame {
+            width: 100%;
+            height: 70vh;
+            border: 1px solid #2a9aca33;
+            border-radius: 6px;
+            background: #ffffff;
         }
     </style>
 </head>
 
 <body>
-
 
     <div style="margin: 0px auto; max-width: 1440px;">
         <dialog id="permission-dialog" closedby="any">
@@ -392,6 +442,30 @@
                 <button id="later-button">Later</button>
                 <button id="review-button">Review</button>
             </div>
+        </dialog>
+
+        <dialog id="transcript-modal">
+            <div class="modal-header">
+                <h2 id="transcript-modal-title" style="margin: 0;">Transcrição Completa</h2>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="transcript-modal-download" class="btn-outline">Baixar .txt</button>
+                    <button id="transcript-modal-close">Fechar</button>
+                </div>
+            </div>
+            <div id="transcript-modal-meta" class="sub-text" style="margin-bottom: 0.75rem;"></div>
+            <div id="transcript-modal-body" class="modal-scroll"></div>
+        </dialog>
+
+        <dialog id="ata-preview-modal">
+            <div class="modal-header">
+                <h2 id="ata-preview-title" style="margin: 0;">Visualização da Ata de Reunião</h2>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="ata-preview-docx" class="btn-outline">Baixar .docx</button>
+                    <button id="ata-preview-print">Imprimir / Salvar PDF</button>
+                    <button id="ata-preview-close" class="btn-outline">Fechar</button>
+                </div>
+            </div>
+            <iframe id="ata-preview-frame" title="Ata de Reunião"></iframe>
         </dialog>
 
         <h1>TranscripTonic</h1>
@@ -409,6 +483,7 @@
                             <th>Meeting software</th>
                             <th>Meeting start time and duration</th>
                             <th>Webhook status</th>
+                            <th>Ata (Gemini)</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -422,6 +497,77 @@
             </button>
         </section>
 
+        <section id="ata-settings">
+            <h2 style="margin-bottom: 0;">Ata de Reunião com Google Gemini AI</h2>
+            <p style="margin-top: 0.5rem" class="sub-text">Configure sua chave API do Google Gemini para sintetizar automaticamente as transcrições no formato padronizado da Ata de Reunião.</p>
+
+            <div class="grid-container">
+                <div class="card">
+                    <div class="webhook-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <p class="card-heading" style="margin: 0;">Configuração do Gemini</p>
+                        <span id="gemini-key-status" class="sub-text">Chave não configurada</span>
+                    </div>
+
+                    <form id="gemini-config-form" class="form-field">
+                        <label for="gemini-api-key">Chave API do Google Gemini</label>
+                        <div class="input-group">
+                            <input type="password" id="gemini-api-key" placeholder="AIza..." autocomplete="off" />
+                            <button type="submit" id="save-gemini-key">Salvar</button>
+                            <button type="button" id="clear-gemini-key" class="btn-outline" style="display: none;">Remover</button>
+                        </div>
+                        <span id="gemini-feedback" class="sub-text" style="display: block; margin-top: 0.35rem;"></span>
+                    </form>
+
+                    <div class="form-field">
+                        <label for="gemini-model">Modelo Gemini</label>
+                        <select id="gemini-model" style="margin-top: 0.4rem;">
+                            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (Mais econômico / recomendado)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Equilibrado)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                        </select>
+                    </div>
+
+                    <div class="form-field">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="auto-generate-ata" />
+                            <label for="auto-generate-ata">Gerar Ata (.docx) automaticamente ao término de cada reunião</label>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    <div class="form-field">
+                        <label for="ata-client-name">Cliente / Empresa padrão (opcional)</label>
+                        <input type="text" id="ata-client-name" placeholder="Ex.: Nome da Empresa" style="margin-top: 0.4rem;" />
+                    </div>
+
+                    <div class="form-field">
+                        <label for="ata-subdiretoria">Subdiretoria padrão (opcional)</label>
+                        <input type="text" id="ata-subdiretoria" placeholder="Ex.: Projetos / Comercial" style="margin-top: 0.4rem;" />
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="webhook-header">
+                        <p class="card-heading" style="margin: 0;">Modelo de Formatação da Ata</p>
+                    </div>
+
+                    <div class="form-field">
+                        <p style="margin-top: 0;">Modelo ativo: <strong id="ata-template-status">Padrão embutido (templates/modelo-ata.pdf)</strong></p>
+                        <p class="sub-text">O modelo padrão segue exatamente o layout oficial (cabeçalho azul, tabela de 5 colunas com LOCAL, DATA E HORÁRIO, PARTICIPANTES, AUSENTES e SUBDIRETORIA, Pauta numerada, Encaminhamentos, link direto para a transcrição completa e assinatura).</p>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="ata-template-file">Enviar modelo personalizado (.pdf ou .docx)</label>
+                        <div class="input-group" style="margin-top: 0.5rem;">
+                            <input type="file" id="ata-template-file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                            <button type="button" id="reset-ata-template" class="btn-outline">Restaurar padrão</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section id="webhooks">
             <h2 style="margin-bottom: 0;">Integrate TranscripTonic with your favourite tools</h2>
 
@@ -429,17 +575,17 @@
                 supports webhooks.
                 If
                 it does not, you can use
-                automation tools like n8n as a bridge.</b></p>
+                automation tools like n8n as a bridge.</p>
 
             <div class="grid-container">
                 <div class="card">
                     <div class="webhook-header" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <p class="card-heading">Configure webhook</p>
+                        <p class="card-heading" style="margin: 0;">Configure webhook</p>
                         <img src="./icons/webhook-white.svg" alt="" width="20px">
                     </div>
                     <form id="webhook-url-form" class="form-field">
                         <label for="webhook-url">Webhook URL</label>
-                        <div class="input-group">
+                        <div class="input-group" style="gap: 0;">
                             <input type="url" id="webhook-url" placeholder="https://your-webhook-url.com">
                             <button id="save-webhook">Save</button>
                         </div>
@@ -483,7 +629,7 @@
 
                 <div class="card">
                     <div class="webhook-header" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <p class="card-heading">Webhook help</p>
+                        <p class="card-heading" style="margin: 0;">Webhook help</p>
                     </div>
                     <p class="card-heading">Webhook integration guides</p>
                     <div class="integration-card">
@@ -566,7 +712,7 @@
         </section>
     </div>
 
-    <script src="meetings.js"></script>
+    <script type="module" src="meetings.js"></script>
 </body>
 
 </html>

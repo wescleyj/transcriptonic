@@ -32,7 +32,7 @@ function showNotificationZoom(extensionStatusJSON) {
 
         logo.setAttribute(
             "src",
-            "https://ejnana.github.io/transcripto-status/icon.png"
+            LOGO_URL
         )
         logo.setAttribute("height", "32px")
         logo.setAttribute("width", "32px")

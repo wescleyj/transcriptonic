@@ -26,11 +26,11 @@ if (meetingTitle) {
 }
 
 chrome.storage.local.get(["meetingTitle", "transcript"], (result) => {
-    if (result.meetingTitle) {
+    if (result.meetingTitle && meetingTitle) {
         const titleText = result.meetingTitle
         if (titleText) {
             console.log(result.meetingTitle)
-            meetingTitle.innerHTML = titleText
+            meetingTitle.textContent = titleText
         }
     }
 
@@ -41,10 +41,10 @@ chrome.storage.local.get(["meetingTitle", "transcript"], (result) => {
 
 // Update on change
 chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && changes.meetingTitle) {
+    if (areaName === 'local' && changes.meetingTitle && meetingTitle) {
         const titleText = changes.meetingTitle.newValue
         if (titleText) {
-            meetingTitle.innerHTML = titleText
+            meetingTitle.textContent = titleText
         }
     }
 

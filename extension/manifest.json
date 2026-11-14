@@ -10,6 +10,11 @@
   "side_panel": {
     "default_path": "side-panel/index.html"
   },
+  "sidebar_action": {
+    "default_panel": "side-panel/index.html",
+    "default_title": "TranscripTonic",
+    "default_icon": "icon.png"
+  },
   "icons": {
     "128": "icon.png"
   },
@@ -22,14 +27,15 @@
     "sidePanel"
   ],
   "host_permissions": [
-    "https://meet.google.com/*"
+    "https://meet.google.com/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "optional_permissions": [
     "notifications"
   ],
   "optional_host_permissions": [
     "*://*/*",
-    "https://*.zoom.us/",
+    "https://*.zoom.us/*",
     "https://teams.live.com/*",
     "https://teams.microsoft.com/*",
     "https://teams.cloud.microsoft/*",
@@ -42,6 +48,9 @@
   ],
   "background": {
     "service_worker": "background-script/index.js",
+    "scripts": [
+      "background-script/index.js"
+    ],
     "type": "module"
   },
   "declarative_net_request": {
@@ -52,5 +61,23 @@
         "path": "rules.json"
       }
     ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon.png",
+        "meetings.html",
+        "templates/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "transcriptonic@wescleyj.github.io",
+      "strict_min_version": "115.0"
+    }
   }
 }

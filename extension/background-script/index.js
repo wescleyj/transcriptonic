@@ -1,6 +1,7 @@
 import { ALARM_NAME } from "./config.js"
 import { processLastMeeting, recoverLastMeeting } from "./meetings.js"
 import { downloadTranscript, postTranscriptToWebhook } from "./exporters.js"
+import { generateAtaAtIndex, downloadAtaAtIndex, DEFAULT_GEMINI_MODEL } from "./ata-generator.js"
 import {
     getPermissionStatus,
     requestPlatformPermission,
@@ -18,18 +19,41 @@ import {
     openSidePanel
 } from "./utils.js"
 
+const ASYNC_RESPONSE_TYPES = new Set([
+    "meeting_ended",
+    "download_transcript_at_index",
+    "post_webhook_at_index",
+    "generate_ata_at_index",
+    "download_ata_at_index",
+    "recover_last_meeting",
+    "get_platform_enablement_status",
+    "get_platform_permission_status",
+    "enable_platform",
+    "disable_platform",
+    "open_popup",
+    "open_side_panel"
+])
+
 chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendResponse) {
     const message = /** @type {ExtensionMessage} */ (messageUnTyped)
     console.log(message.type)
 
     if (message.type === "new_meeting_started") {
         // Saving current tab id, to download transcript when this tab is closed
-        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-            const tabId = tabs[0].id
-            chrome.storage.local.set({ meetingTabId: tabId }, function () {
+        if (sender?.tab?.id) {
+            chrome.storage.local.set({ meetingTabId: sender.tab.id }, function () {
                 console.log("Meeting tab id saved")
             })
-        })
+        } else {
+            chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+                const tabId = tabs?.[0]?.id
+                if (tabId) {
+                    chrome.storage.local.set({ meetingTabId: tabId }, function () {
+                        console.log("Meeting tab id saved")
+                    })
+                }
+            })
+        }
     }
 
     if (message.type === "meeting_ended") {
@@ -52,9 +76,6 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
                     sendResponse(response)
                 })
                 .finally(() => {
-                    // setTimeout(() => {
-                    //     checkPermissionsAndOpenMeetingsPage()
-                    // }, 10000)
                     clearTabIdAndApplyUpdate()
                 })
         })
@@ -99,6 +120,54 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
                     const parsedError = /** @type {ErrorObject} */ (error)
 
                     console.error("Webhook retry failed:", parsedError)
+                    /** @type {ExtensionResponse} */
+                    const response = { success: false, message: parsedError }
+                    sendResponse(response)
+                })
+        }
+        else {
+            /** @type {ExtensionResponse} */
+            const response = { success: false, message: { errorCode: "015", errorMessage: "Invalid index" } }
+            sendResponse(response)
+        }
+    }
+
+    if (message.type === "generate_ata_at_index") {
+        if ((typeof message.index === "number") && (message.index >= 0)) {
+            generateAtaAtIndex(message.index, message.options || {})
+                .then((result) => {
+                    /** @type {ExtensionResponse} */
+                    const response = { success: true, message: result }
+                    sendResponse(response)
+                })
+                .catch((error) => {
+                    const parsedError = error?.errorCode
+                        ? /** @type {ErrorObject} */ (error)
+                        : { errorCode: "019", errorMessage: error?.message || String(error) }
+                    /** @type {ExtensionResponse} */
+                    const response = { success: false, message: parsedError }
+                    sendResponse(response)
+                })
+        }
+        else {
+            /** @type {ExtensionResponse} */
+            const response = { success: false, message: { errorCode: "015", errorMessage: "Invalid index" } }
+            sendResponse(response)
+        }
+    }
+
+    if (message.type === "download_ata_at_index") {
+        if ((typeof message.index === "number") && (message.index >= 0)) {
+            downloadAtaAtIndex(message.index, message.format || "docx")
+                .then((result) => {
+                    /** @type {ExtensionResponse} */
+                    const response = { success: true, message: result }
+                    sendResponse(response)
+                })
+                .catch((error) => {
+                    const parsedError = error?.errorCode
+                        ? /** @type {ErrorObject} */ (error)
+                        : { errorCode: "020", errorMessage: error?.message || String(error) }
                     /** @type {ExtensionResponse} */
                     const response = { success: false, message: parsedError }
                     sendResponse(response)
@@ -189,7 +258,6 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
                 const response = { success: true, message: results[0] }
                 sendResponse(response)
             }).catch((error) => {
-                // Fails with error codes: not defined
                 const parsedError = /** @type {ErrorObject} */ (error)
 
                 /** @type {ExtensionResponse} */
@@ -198,7 +266,6 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
             })
         })
             .catch((error) => {
-                // Fails with error codes: not defined
                 const parsedError = /** @type {ErrorObject} */ (error)
 
                 /** @type {ExtensionResponse} */
@@ -235,11 +302,9 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
     }
 
     if (message.type === "open_popup") {
-        /** @type {Platform} */
-
-        openExtensionPopup().then((message) => {
+        openExtensionPopup().then((msg) => {
             /** @type {ExtensionResponse} */
-            const response = { success: true, message: message }
+            const response = { success: true, message: msg }
             sendResponse(response)
         }).catch((error) => {
             const parsedError = /** @type {ErrorObject} */ (error)
@@ -251,11 +316,9 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
     }
 
     if (message.type === "open_side_panel") {
-        /** @type {Platform} */
-
-        openSidePanel().then((message) => {
+        openSidePanel(sender?.tab?.id).then((msg) => {
             /** @type {ExtensionResponse} */
-            const response = { success: true, message: message }
+            const response = { success: true, message: msg }
             sendResponse(response)
         }).catch((error) => {
             const parsedError = /** @type {ErrorObject} */ (error)
@@ -266,12 +329,11 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
         })
     }
 
-
-    return true
+    return ASYNC_RESPONSE_TYPES.has(message.type)
 })
 
 // Download last meeting if meeting tab is closed
-chrome.tabs.onRemoved.addListener(function (tabId) {
+chrome.tabs?.onRemoved?.addListener(function (tabId) {
     chrome.storage.local.get(["meetingTabId"], function (resultLocalUntyped) {
         const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped)
 
@@ -283,9 +345,6 @@ chrome.tabs.onRemoved.addListener(function (tabId) {
                 console.log("Meeting tab id set to processing meeting")
 
                 processLastMeeting().finally(() => {
-                    // setTimeout(() => {
-                    //     checkPermissionsAndOpenMeetingsPage()
-                    // }, 10000)
                     clearTabIdAndApplyUpdate()
                 })
             })
@@ -294,7 +353,7 @@ chrome.tabs.onRemoved.addListener(function (tabId) {
 })
 
 // Listen for extension updates
-chrome.runtime.onUpdateAvailable.addListener(() => {
+chrome.runtime?.onUpdateAvailable?.addListener(() => {
     // Check if there is an active meeting
     chrome.storage.local.get(["meetingTabId"], function (resultUntyped) {
         const result = /** @type {ResultLocal} */ (resultUntyped)
@@ -312,36 +371,36 @@ chrome.runtime.onUpdateAvailable.addListener(() => {
     })
 })
 
-// Register content scripts and Zoom redirect whenever runtime permission change—mostly serves as a backup for changes made outside the UI.
-chrome.permissions.onAdded.addListener((event) => {
-    // Prevent competing with explicit content script registrations
+// Register content scripts and Zoom redirect whenever runtime permissions change—serialized after de-registration to avoid race conditions.
+chrome.permissions?.onAdded?.addListener(() => {
     setTimeout(() => {
         /** @type {Platform[]} */
         const platforms = ["google_meet", "teams", "zoom"]
-        /** @type {Promise<any>[]} */
         const deRegisterPromises = [deregisterContentScript(platforms), deregisterZoomRedirect()]
 
         Promise.all(deRegisterPromises)
             .then(() => {
                 console.log("De-registered all content scripts. Starting re-registration...")
-
+                reRegisterContentScripts()
             })
-
-        reRegisterContentScripts()
+            .catch((err) => {
+                console.error("Failed to de-register content scripts:", err)
+                reRegisterContentScripts()
+            })
     }, 2000)
 })
 
 
-chrome.runtime.onInstalled.addListener(() => {
-    // Set defaults values
+chrome.runtime?.onInstalled?.addListener(() => {
+    // Set default values
     chrome.storage.sync.get(null, function (resultSyncUntyped) {
         const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-
-        console.log(resultSync.wantTeams)
 
         chrome.storage.sync.set({
             autoPostWebhookAfterMeeting: resultSync.autoPostWebhookAfterMeeting === false ? false : true,
             autoDownloadFileAfterMeeting: resultSync.autoDownloadFileAfterMeeting === false ? false : true,
+            autoGenerateAtaAfterMeeting: resultSync.autoGenerateAtaAfterMeeting === true ? true : false,
+            geminiModel: resultSync.geminiModel || DEFAULT_GEMINI_MODEL,
             operationMode: resultSync.operationMode === "manual" ? "manual" : "auto",
             hideCaptions: resultSync.hideCaptions === true ? true : false,
             webhookBodyType: resultSync.webhookBodyType === "advanced" ? "advanced" : "simple",
@@ -349,7 +408,7 @@ chrome.runtime.onInstalled.addListener(() => {
             wantTeams: resultSync.wantTeams === true ? true : false,
             wantZoom: resultSync.wantZoom === true ? true : false
         }, function () {
-            // Re-register content scripts whenever extension is installed or updated, provided permissions are available. Suppress notification for silent background operation.
+            // Re-register content scripts whenever extension is installed or updated, provided permissions are available.
             reRegisterContentScripts()
         })
 
@@ -357,9 +416,8 @@ chrome.runtime.onInstalled.addListener(() => {
     })
 })
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms?.onAlarm?.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
         console.log("Alarm triggered: Running daily check...")
-        // checkPermissionsAndOpenMeetingsPage()
     }
 })

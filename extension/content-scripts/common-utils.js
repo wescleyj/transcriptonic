@@ -36,48 +36,15 @@ function createContentScriptState(meetingSoftware, platform) {
 }
 
 /**
- * @description Fetches extension status from GitHub and saves to chrome storage. Defaults to 200, if remote server is unavailable.
+ * @description Resolves extension status locally without remote kill-switch or external HTML injection.
  * @param {ContentScriptState} state
  */
 function checkExtensionStatus(state) {
-    return new Promise((resolve, reject) => {
-        // Set default value as 200
-        state.extensionStatusJSON = {
-            status: 200,
-            message: state.meetingSoftware ? NOTIFICATION_PLATFORM_CONFIGS[state.platform].notificationText : ""
-        }
-
-        // https://stackoverflow.com/a/42518434
-        fetch(
-            state.meetingSoftware ? NOTIFICATION_PLATFORM_CONFIGS[state.platform].statusUrl : "",
-            { cache: "no-store" }
-        )
-            .then((response) => response.json())
-            .then((result) => {
-                const minVersion = result.minVersion
-
-                // Disable extension if version is below the min version
-                if (!meetsMinVersion(chrome.runtime.getManifest().version, minVersion)) {
-                    state.extensionStatusJSON.status = 400
-                    state.extensionStatusJSON.message = `<strong>TranscripTonic is not running</strong> <br /> Please update to v${minVersion} by following <a href="https://github.com/vivek-nexus/transcriptonic/wiki/Manually-update-TranscripTonic" target="_blank">these instructions</a>`
-                }
-                else {
-                    // Update status based on response
-                    state.extensionStatusJSON.status = result.status
-                    state.extensionStatusJSON.message = result.message
-                    state.extensionStatusJSON.showBetaMessage = (result.showBetaMessage === true)
-                }
-
-                console.log("Extension status fetched and saved")
-                resolve("Extension status fetched and saved")
-            })
-            .catch((err) => {
-                console.error(err)
-                reject("Could not fetch extension status")
-
-                logError(state, "008", err)
-            })
-    })
+    state.extensionStatusJSON = {
+        status: 200,
+        message: state.meetingSoftware ? NOTIFICATION_PLATFORM_CONFIGS[state.platform].notificationText : ""
+    }
+    return Promise.resolve("Extension status resolved locally")
 }
 
 /**
@@ -394,7 +361,7 @@ function renderFab() {
     fab.title = "TranscripTonic"
     fab.style.cssText = fabCss
 
-    const logoUrl = "https://ejnana.github.io/transcripto-status/icon.png"
+    const logoUrl = LOGO_URL
 
     fab.innerHTML = `
         <div id="fab-main-content" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">
@@ -429,7 +396,7 @@ function renderFab() {
     // Initial storage query on load
     chrome.storage.local.get(["transcript"], (resultUntyped) => {
         const result = /** @type {ResultLocal} */ (resultUntyped)
-        updateFabState(result.transcript)
+        updateFabState(/** @type {ContentScriptState} */ ({ transcript: result.transcript || [] }))
     })
 }
 
@@ -510,7 +477,7 @@ function updateFabState(state) {
     const letterMark = fab?.querySelector("#fab-letter-mark")
     const miniBadge = fab?.querySelector("#fab-mini-badge")
 
-    if (state.transcript && state.transcript.length > 0) {
+    if (state && Array.isArray(state.transcript) && state.transcript.length > 0) {
         const currentSpeaker = state.stateTranscriptBlock?.personName
 
         if (currentSpeaker && currentSpeaker.trim() !== "") {
@@ -554,13 +521,13 @@ function logTranscriptToConsole(state) {
 }
 
 /**
-   * @description Logs anonymous errors to a Google sheet for swift debugging
+   * @description Logs errors locally without sending external telemetry.
    * @param {ContentScriptState} state
    * @param {string} code
    * @param {any} err
    */
 function logError(state, code, err) {
-    fetch(`${LOG_ERROR_SCRIPT_URL}?version=${chrome.runtime.getManifest().version}&code=${code}&error=${encodeURIComponent(err)}&meetingSoftware=${state.meetingSoftware}`, { mode: "no-cors" })
+    console.error(`[TranscripTonic] Error ${code} (${state?.meetingSoftware || "unknown"}):`, err)
 }
 
 /**

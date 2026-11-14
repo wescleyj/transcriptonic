@@ -1,5 +1,171 @@
-import { getTranscriptString, getChatMessagesString } from './utils.js'
+import { getTranscriptString, getChatMessagesString, getTranscriptFileName, isFirefox } from './utils.js'
 import { TIMEFORMAT } from './config.js'
+
+/**
+ * Converts a Blob into a Base64 string using ArrayBuffer (works in MV3 Service Workers, Firefox, and Node).
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+export async function blobToBase64(blob) {
+    const buffer = await blob.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    const chunkSize = 0x8000
+    let binary = ""
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize)
+        binary += String.fromCharCode(...chunk)
+    }
+    return btoa(binary)
+}
+
+/**
+ * Fallback download handler that delegates a Blob download to meetings.html.
+ * @param {{ fileName: string, base64Data: string, mimeType: string }} params
+ * @returns {Promise<string>}
+ */
+export function sendDownloadToMeetingsPage({ fileName, base64Data, mimeType }) {
+    return new Promise((resolve, reject) => {
+        const payload = {
+            type: "download_blob_via_page",
+            fileName: fileName,
+            base64Data: base64Data,
+            mimeType: mimeType
+        }
+
+        const sendToTab = (/** @type {number} */ tabId) => {
+            chrome.tabs.sendMessage(tabId, payload, function (response) {
+                if (chrome.runtime?.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message))
+                    return
+                }
+                if (response && response.success) {
+                    resolve("Downloaded via meetings page")
+                } else {
+                    reject(new Error("Failed to trigger download in meetings.html"))
+                }
+            })
+        }
+
+        chrome.tabs.query({}, function (tabs) {
+            const meetingsTab = tabs.find(tab => tab.url && tab.url.includes("meetings.html"))
+            if (meetingsTab && meetingsTab.id) {
+                const tabId = meetingsTab.id
+                chrome.tabs.update(tabId, { active: true }, function () {
+                    sendToTab(tabId)
+                })
+                return
+            }
+
+            chrome.tabs.create({ url: chrome.runtime.getURL("meetings.html"), active: true }, function (newTab) {
+                if (!newTab || !newTab.id) {
+                    reject(new Error("Could not open meetings.html for download"))
+                    return
+                }
+                const newTabId = newTab.id
+                const timeoutId = setTimeout(() => {
+                    chrome.tabs.onUpdated.removeListener(listener)
+                    reject(new Error("Timed out waiting for meetings.html to load"))
+                }, 15000)
+
+                /**
+                 * @param {number} tabId
+                 * @param {chrome.tabs.TabChangeInfo} changeInfo
+                 */
+                const listener = function (tabId, changeInfo) {
+                    if (tabId === newTabId && changeInfo.status === "complete") {
+                        clearTimeout(timeoutId)
+                        chrome.tabs.onUpdated.removeListener(listener)
+                        sendToTab(newTabId)
+                    }
+                }
+                chrome.tabs.onUpdated.addListener(listener)
+            })
+        })
+    })
+}
+
+/**
+ * Cross-browser download helper supporting Firefox blob URLs, Chromium MV3 data URLs, and meetings.html fallback.
+ * @param {{ blob: Blob, fileName: string, fallbackFileName?: string, mimeType?: string }} params
+ * @returns {Promise<string>}
+ */
+export async function downloadBlobOrDataUrl({ blob, fileName, fallbackFileName, mimeType }) {
+    const g = /** @type {any} */ (globalThis)
+    const downloadsApi = g.browser?.downloads || (typeof chrome !== "undefined" ? chrome.downloads : undefined)
+    const contentMime = mimeType || blob.type || "application/octet-stream"
+    const safeFallback = fallbackFileName || "TranscripTonic/Transcript.txt"
+
+    if (isFirefox() && typeof URL !== "undefined" && typeof URL.createObjectURL === "function" && downloadsApi?.download) {
+        const objectUrl = URL.createObjectURL(blob)
+        const scheduleRevoke = () => {
+            setTimeout(() => {
+                try {
+                    URL.revokeObjectURL(objectUrl)
+                } catch (_err) {
+                    // Ignore revocation errors
+                }
+            }, 10000)
+        }
+
+        try {
+            await downloadsApi.download({
+                url: objectUrl,
+                filename: fileName,
+                conflictAction: "uniquify"
+            })
+            scheduleRevoke()
+            return "File downloaded successfully"
+        } catch (err) {
+            console.warn("Firefox primary download failed, retrying fallback filename:", err)
+            try {
+                await downloadsApi.download({
+                    url: objectUrl,
+                    filename: safeFallback,
+                    conflictAction: "uniquify"
+                })
+                scheduleRevoke()
+                return "File downloaded successfully with default file name"
+            } catch (fallbackErr) {
+                console.warn("Firefox downloads API fallback failed, routing via meetings.html:", fallbackErr)
+                try {
+                    URL.revokeObjectURL(objectUrl)
+                } catch (_revokeErr) {
+                    // Ignore
+                }
+                const base64Data = await blobToBase64(blob)
+                return sendDownloadToMeetingsPage({ fileName: safeFallback, base64Data, mimeType: contentMime })
+            }
+        }
+    }
+
+    const base64Data = await blobToBase64(blob)
+    if (downloadsApi?.download) {
+        const dataUrl = `data:${contentMime};base64,${base64Data}`
+        try {
+            await downloadsApi.download({
+                url: dataUrl,
+                filename: fileName,
+                conflictAction: "uniquify"
+            })
+            return "File downloaded successfully"
+        } catch (err) {
+            console.error("Primary download failed, retrying fallback filename:", err)
+            try {
+                await downloadsApi.download({
+                    url: dataUrl,
+                    filename: safeFallback,
+                    conflictAction: "uniquify"
+                })
+                return "File downloaded successfully with default file name"
+            } catch (fallbackErr) {
+                console.warn("Downloads API fallback failed, routing via meetings.html:", fallbackErr)
+                return sendDownloadToMeetingsPage({ fileName: safeFallback, base64Data, mimeType: contentMime })
+            }
+        }
+    }
+
+    return sendDownloadToMeetingsPage({ fileName: safeFallback, base64Data, mimeType: contentMime })
+}
 
 /**
  * @param {number} index
@@ -13,26 +179,7 @@ export function downloadTranscript(index, isWebhookEnabled) {
 
             if (resultLocal.meetings && resultLocal.meetings[index]) {
                 const meeting = resultLocal.meetings[index]
-
-                // Sanitise meeting title to prevent invalid file name errors
-                // https://stackoverflow.com/a/78675894
-                const invalidFilenameRegex = /[:?"*<>|~/\\\u{1}-\u{1f}\u{7f}\u{80}-\u{9f}\p{Cf}\p{Cn}]|^[.\u{0}\p{Zl}\p{Zp}\p{Zs}]|[.\u{0}\p{Zl}\p{Zp}\p{Zs}]$|^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/gui
-                let sanitisedMeetingTitle = "Meeting"
-                if (meeting.meetingTitle) {
-                    sanitisedMeetingTitle = meeting.meetingTitle.replaceAll(invalidFilenameRegex, "_")
-                }
-                else if (meeting.title) {
-                    sanitisedMeetingTitle = meeting.title.replaceAll(invalidFilenameRegex, "_")
-                }
-
-                // Format timestamp for human-readable filename and sanitise to prevent invalid filenames
-                const timestamp = new Date(meeting.meetingStartTimestamp)
-                const formattedTimestamp = timestamp.toLocaleString("default", TIMEFORMAT).replace(/[\/:]/g, "-")
-
-                const prefix = meeting.meetingSoftware ? `${meeting.meetingSoftware} transcript` : "Transcript"
-
-                const fileName = `TranscripTonic/${prefix}-${sanitisedMeetingTitle} at ${formattedTimestamp} on.txt`
-
+                const fileName = getTranscriptFileName(meeting)
 
                 // Format transcript and chatMessages content
                 let content = getTranscriptString(meeting.transcript)
@@ -41,50 +188,25 @@ export function downloadTranscript(index, isWebhookEnabled) {
 
                 // Add branding
                 content += "\n\n---------------\n"
-                content += "Transcript saved using TranscripTonic Chrome extension (https://chromewebstore.google.com/detail/ciepnfnceimjehngolkijpnbappkkiag)"
+                content += "Transcript saved using TranscripTonic extension (https://github.com/vivek-nexus/transcriptonic)"
                 content += "\n---------------"
 
-                const blob = new Blob([content], { type: "text/plain" })
+                const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
 
-                // Read the blob as a data URL
-                const reader = new FileReader()
-
-                // Read the blob
-                reader.readAsDataURL(blob)
-
-                // Download as text file, once blob is read
-                reader.onload = function (event) {
-                    if (event.target?.result) {
-                        const dataUrl = event.target.result
-
-                        // Create a download with Chrome Download API
-                        chrome.downloads.download({
-                            // @ts-ignore
-                            url: dataUrl,
-                            filename: fileName,
-                            conflictAction: "uniquify"
-                        }).then(() => {
-                            console.log("Transcript downloaded")
-                            resolve("Transcript downloaded successfully")
-                        }).catch((err) => {
-                            console.error(err)
-                            chrome.downloads.download({
-                                // @ts-ignore
-                                url: dataUrl,
-                                filename: "TranscripTonic/Transcript.txt",
-                                conflictAction: "uniquify"
-                            })
-                            console.log("Invalid file name. Transcript downloaded to TranscripTonic directory with simple file name.")
-                            resolve("Transcript downloaded successfully with default file name")
-
-                            // Logs anonymous errors to a Google sheet for swift debugging   
-                            fetch(`https://script.google.com/macros/s/AKfycbz0VFUYIke1WK12Q-8y-zQ91bOPRZ8dAL4cRpm309IYZO0k6uYDkTSlfbWFaGvUV_Z-JQ/exec?version=${chrome.runtime.getManifest().version}&code=009&error=${encodeURIComponent(err)}&meetingSoftware=${meeting.meetingSoftware}`, { mode: "no-cors" })
-                        })
-                    }
-                    else {
-                        reject({ errorCode: "009", errorMessage: "Failed to read blob" })
-                    }
-                }
+                downloadBlobOrDataUrl({
+                    blob,
+                    fileName,
+                    fallbackFileName: "TranscripTonic/Transcript.txt",
+                    mimeType: "text/plain;charset=utf-8"
+                })
+                    .then((msg) => {
+                        console.log("Transcript downloaded")
+                        resolve(msg)
+                    })
+                    .catch((err) => {
+                        console.error("Failed to download transcript:", err)
+                        reject({ errorCode: "009", errorMessage: err?.message || "Failed to download transcript" })
+                    })
             }
             else {
                 reject({ errorCode: "010", errorMessage: "Meeting at specified index not found" })
@@ -158,20 +280,21 @@ export function postTranscriptToWebhook(index) {
                             // @ts-ignore - Pointless type error about resultLocal.meetings being undefined, which is already checked above.
                             resultLocal.meetings[index].webhookPostStatus = "failed"
                             chrome.storage.local.set({ meetings: resultLocal.meetings }, function () {
-                                // Create notification and open webhooks page
-                                chrome.notifications.create({
-                                    type: "basic",
-                                    iconUrl: "icon.png",
-                                    title: "Could not post webhook!",
-                                    message: "Click to view status and retry. Check console for more details."
-                                }, function (notificationId) {
-                                    // Handle notification click
-                                    chrome.notifications.onClicked.addListener(function (clickedNotificationId) {
-                                        if (clickedNotificationId === notificationId) {
-                                            chrome.tabs.create({ url: "meetings.html" })
-                                        }
+                                // Create notification and open webhooks page if notifications API is available
+                                if (chrome.notifications && typeof chrome.notifications.create === "function") {
+                                    chrome.notifications.create({
+                                        type: "basic",
+                                        iconUrl: chrome.runtime.getURL("icon.png"),
+                                        title: "Could not post webhook!",
+                                        message: "Click to view status and retry. Check console for more details."
+                                    }, function (notificationId) {
+                                        chrome.notifications.onClicked.addListener(function (clickedNotificationId) {
+                                            if (clickedNotificationId === notificationId) {
+                                                chrome.tabs.create({ url: chrome.runtime.getURL("meetings.html") })
+                                            }
+                                        })
                                     })
-                                })
+                                }
                                 reject({ errorCode: "011", errorMessage: error })
                             })
                         })

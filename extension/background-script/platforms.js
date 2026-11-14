@@ -1,5 +1,7 @@
 import { PLATFORM_CONFIGS } from './config.js'
 
+const OPTIONAL_PLATFORM_PERMISSIONS = new Set(["notifications"])
+
 /**
  * @param {string|string[]} platform
  */
@@ -26,6 +28,8 @@ export function getPermissionStatus(platform) {
                 } else {
                     resolve("Disabled")
                 }
+            }).catch((error) => {
+                reject(error)
             })
         })
     }
@@ -51,17 +55,26 @@ export function requestPlatformPermission(platform) {
 
         // Map each platform to its config, then flatten the resulting nested arrays
         const allOrigins = platforms.flatMap(p => PLATFORM_CONFIGS[p]?.matches || [])
-        const allPermissions = platforms.flatMap(p => PLATFORM_CONFIGS[p]?.permissions || [])
+        const allPermissions = platforms
+            .flatMap(p => PLATFORM_CONFIGS[p]?.permissions || [])
+            .filter(perm => OPTIONAL_PLATFORM_PERMISSIONS.has(perm))
 
         // Use Set to handle duplicates
         const request = {
             origins: [...new Set(allOrigins)],
-            permissions: [...new Set(allPermissions)]
+            permissions: /** @type {chrome.runtime.ManifestPermissions[]} */ ([...new Set(allPermissions)])
         }
 
-        chrome.permissions.request(request)
-            .then((granted) => {
-                granted ? resolve("Permissions granted") : reject("Permissions denied")
+        chrome.permissions.contains(request)
+            .then((alreadyGranted) => {
+                if (alreadyGranted) {
+                    resolve("Permissions granted")
+                    return
+                }
+                return chrome.permissions.request(request)
+                    .then((granted) => {
+                        granted ? resolve("Permissions granted") : reject("Permissions denied")
+                    })
             })
             .catch((error) => {
                 console.error(error)
@@ -147,24 +160,29 @@ export function registerContentScript(platform, showNotification = true) {
                                 console.log(`${p} content script already registered`)
                                 resolve(`Content script already registered`)
                             } else {
-                                chrome.scripting.registerContentScripts([{
+                                /** @type {chrome.scripting.RegisteredContentScript} */
+                                const scriptConfig = {
                                     id: config.id,
                                     js: config.js,
                                     matches: allowedMatches,
-                                    excludeMatches: config.excludeMatches,
                                     runAt: "document_end",
-                                }])
+                                }
+                                if (config.excludeMatches && config.excludeMatches.length > 0) {
+                                    scriptConfig.excludeMatches = config.excludeMatches
+                                }
+
+                                chrome.scripting.registerContentScripts([scriptConfig])
                                     .then(() => {
                                         console.log(`${p} content script registered successfully.`)
 
-                                        if (showNotification) {
+                                        if (showNotification && chrome.notifications) {
                                             chrome.permissions.contains({
                                                 permissions: ["notifications"]
                                             }).then((hasNotifyPermission) => {
                                                 if (hasNotifyPermission) {
                                                     chrome.notifications.create({
                                                         type: "basic",
-                                                        iconUrl: "../icon.png",
+                                                        iconUrl: chrome.runtime.getURL("icon.png"),
                                                         title: "Enabled!",
                                                         message: p === "google_meet" ? `Refresh any existing meeting pages` : ` ${p === "teams" ? `Join Teams meetings on the browser` : `Zoom meetings will automatically open in the browser`}. Refresh any existing pages.`
                                                     })
@@ -285,6 +303,10 @@ export function reRegisterContentScripts() {
 
 export function registerZoomRedirect() {
     return new Promise((resolve, reject) => {
+        if (!chrome.declarativeNetRequest) {
+            resolve("declarativeNetRequest unavailable")
+            return
+        }
         // Check if we have the host permission required for the redirect
         chrome.permissions.contains({
             origins: ["https://*.zoom.us/*"]
@@ -322,6 +344,10 @@ export function registerZoomRedirect() {
 
 export function deregisterZoomRedirect() {
     return new Promise((resolve, reject) => {
+        if (!chrome.declarativeNetRequest) {
+            resolve("declarativeNetRequest unavailable")
+            return
+        }
         const rulesetId = "ruleset_1"
 
         chrome.declarativeNetRequest.getEnabledRulesets().then((enabledRulesets) => {

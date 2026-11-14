@@ -1,15 +1,16 @@
 import { downloadTranscript, postTranscriptToWebhook } from './exporters.js'
+import { generateAtaAtIndex } from './ata-generator.js'
 
-// Download transcripts, post webhook if URL is enabled and available
+// Download transcripts, post webhook if URL is enabled and available, and optionally generate Ata
 // Fails if transcript is empty or webhook request fails or if no meetings in storage
 /** @throws error codes: 009, 010, 011, 012, 013, 014 */
 export function processLastMeeting() {
     return new Promise((resolve, reject) => {
         pickupLastMeetingFromStorage()
             .then(() => {
-                chrome.storage.local.get(["meetings"], function (resultLocalUntyped) {
+                chrome.storage.local.get(["meetings", "geminiApiKey"], function (resultLocalUntyped) {
                     const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped)
-                    chrome.storage.sync.get(["webhookUrl", "autoPostWebhookAfterMeeting", "autoDownloadFileAfterMeeting"], function (resultSyncUntyped) {
+                    chrome.storage.sync.get(["webhookUrl", "autoPostWebhookAfterMeeting", "autoDownloadFileAfterMeeting", "autoGenerateAtaAfterMeeting"], function (resultSyncUntyped) {
                         const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
 
                         // Create an array of promises to execute in parallel
@@ -21,7 +22,7 @@ export function processLastMeeting() {
                         const lastIndex = resultLocal.meetings.length - 1
 
                         // Promise to download transcript
-                        if (resultSync.autoDownloadFileAfterMeeting) {
+                        if (resultSync.autoDownloadFileAfterMeeting !== false) {
                             promises.push(
                                 downloadTranscript(lastIndex)
                             )
@@ -32,17 +33,17 @@ export function processLastMeeting() {
                             promises.push(postTranscriptToWebhook(lastIndex))
                         }
 
-                        // Execute all promises in parallel
+                        // Execute download and webhook sequentially before optional Ata generation to prevent storage write races
                         Promise.all(promises)
-                            .then(() => {
+                            .then(async () => {
+                                if (resultSync.autoGenerateAtaAfterMeeting && resultLocal.geminiApiKey) {
+                                    try {
+                                        await generateAtaAtIndex(lastIndex)
+                                    } catch (ataErr) {
+                                        console.error("Auto Ata generation failed:", ataErr)
+                                    }
+                                }
                                 resolve("Meeting processing and download/webhook posting complete")
-                                // Increment anonymous transcript generated count to a Google sheet
-                                // @ts-ignore - Because this line exists in the resolved promise from pickupLastMeetingFromStorage, which clearly means that at least one meeting exists and resultLocal.meetings cannot be undefined.
-                                const meetingSoftware = resultLocal.meetings[lastIndex].meetingSoftware
-                                const isWebhookEnabled = resultSync.webhookUrl && resultSync.autoPostWebhookAfterMeeting ? true : false
-                                fetch(`https://script.google.com/macros/s/AKfycbxK3Xd3u7ArtSEEUmu4jJSuJiyOHr5BtRqRGbcAy8Yc3zlVBTUoJ4wr-fJtQtlqRLGspg/exec?version=${chrome.runtime.getManifest().version}&isWebhookEnabled=${isWebhookEnabled}&meetingSoftware=${meetingSoftware}`, {
-                                    mode: "no-cors"
-                                })
                             })
                             .catch(error => {
                                 // Fails with error codes: 009, 010, 011, 012
