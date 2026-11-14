@@ -7,12 +7,32 @@ import {
 } from './utils.js'
 import { downloadBlobOrDataUrl } from './exporters.js'
 
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 export const GEMINI_MODELS = [
-    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
     "gemini-2.5-flash",
-    "gemini-2.0-flash"
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview"
 ]
+const LEGACY_GEMINI_MODELS = new Set([
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash"
+])
+
+/**
+ * Normalizes and migrates legacy Gemini model identifiers to the active default.
+ * @param {string | undefined | null} model
+ * @returns {string}
+ */
+export function resolveGeminiModel(model) {
+    const clean = String(model || "").trim().replace(/^models\//i, "")
+    if (!clean || LEGACY_GEMINI_MODELS.has(clean)) {
+        return DEFAULT_GEMINI_MODEL
+    }
+    return clean
+}
 
 const DEFAULT_TEMPLATE_SPEC = `Estrutura padrão da ATA DE REUNIÃO (baseada no MODELO ATA.docx):
 - Banner superior (Tabela 1): "ATA DE REUNIÃO" (fonte Antonio, azul #004AAD, negrito, borda inferior #047176)
@@ -578,6 +598,98 @@ export function normalizeAtaData(raw, meeting, options = {}) {
 }
 
 /**
+ * Detects whether a Gemini API failure indicates an unavailable or deprecated model ID.
+ * @param {number} status
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isModelAvailabilityError(status, message) {
+    if (status === 404) return true
+    return /no longer available|not found|not supported|deprecated|update your code to use models\//i.test(message)
+}
+
+/**
+ * Extracts a recommended replacement model name from a Gemini API error message.
+ * @param {string} errorMessage
+ * @param {string} excludeModel
+ * @returns {string}
+ */
+function extractSuggestedGeminiModel(errorMessage, excludeModel) {
+    const text = String(errorMessage || "")
+    const preferredMatch = text.match(/(?:use|switch to|try)\s+models\/([a-zA-Z0-9._-]+)/i)
+    if (preferredMatch?.[1] && preferredMatch[1] !== excludeModel && !LEGACY_GEMINI_MODELS.has(preferredMatch[1])) {
+        return preferredMatch[1]
+    }
+    const allMatches = text.matchAll(/models\/([a-zA-Z0-9._-]+)/gi)
+    for (const match of allMatches) {
+        const candidate = match[1]
+        if (candidate && candidate !== excludeModel && !LEGACY_GEMINI_MODELS.has(candidate)) {
+            return candidate
+        }
+    }
+    return ""
+}
+
+/**
+ * Discovers an active generateContent Gemini model via the v1beta models catalog.
+ * @param {typeof fetch} fetchFn
+ * @param {string} apiKey
+ * @param {Set<string>} triedModels
+ * @returns {Promise<string>}
+ */
+async function discoverGeminiModel(fetchFn, apiKey, triedModels) {
+    try {
+        const response = await fetchFn("https://generativelanguage.googleapis.com/v1beta/models", {
+            method: "GET",
+            headers: {
+                "x-goog-api-key": apiKey
+            }
+        })
+        if (!response || !response.ok) {
+            return ""
+        }
+        const catalog = await response.json().catch(() => null)
+        const models = Array.isArray(catalog?.models) ? catalog.models : []
+        const eligible = models
+            .filter((/** @type {any} */ m) => {
+                const clean = String(m?.name || "").replace(/^models\//i, "")
+                const methods = Array.isArray(m?.supportedGenerationMethods) ? m.supportedGenerationMethods : []
+                return clean.startsWith("gemini")
+                    && !/embedding|imagen|veo|tts|robotics|computer-use/i.test(clean)
+                    && methods.includes("generateContent")
+                    && !LEGACY_GEMINI_MODELS.has(clean)
+                    && !triedModels.has(clean)
+            })
+            .map((/** @type {any} */ m) => String(m.name).replace(/^models\//i, ""))
+
+        if (eligible.length === 0) {
+            return ""
+        }
+
+        return eligible.find((/** @type {string} */ id) => /flash-lite/i.test(id))
+            || eligible.find((/** @type {string} */ id) => /flash/i.test(id))
+            || eligible[0]
+            || ""
+    } catch {
+        return ""
+    }
+}
+
+/**
+ * Persists a working fallback Gemini model in chrome.storage.sync when available.
+ * @param {string} workingModel
+ */
+function persistWorkingGeminiModel(workingModel) {
+    if (typeof chrome !== "undefined" && chrome.storage?.sync?.set) {
+        try {
+            chrome.storage.sync.set({ geminiModel: workingModel }, () => { })
+        } catch {
+            // Ignore storage errors outside extension contexts (e.g. Node unit tests)
+        }
+    }
+}
+
+/**
  * Calls the Google Gemini API to synthesize a meeting transcript into an Ata de Reunião matching the template.
  * Sends the API key strictly via the x-goog-api-key HTTP header.
  * @param {{
@@ -607,7 +719,7 @@ export async function callGeminiForAta({
     }
 
     const fetchFn = fetchImpl || fetch
-    const chosenModel = (model || DEFAULT_GEMINI_MODEL).trim()
+    const chosenModel = resolveGeminiModel(model)
     const transcriptText = getTranscriptString(meeting?.transcript || [])
     const chatText = getChatMessagesString(meeting?.chatMessages || [])
 
@@ -691,29 +803,105 @@ REGRAS DE PREENCHIMENTO:
         })
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(chosenModel)}:generateContent`
-    const response = await fetchFn(endpoint, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": trimmedKey
-        },
-        body: JSON.stringify({
-            contents: [{ role: "user", parts }],
-            generationConfig: {
-                responseMimeType: "application/json",
-                temperature: 0.2
-            }
+    /**
+     * Executes a single generateContent request for a given model identifier.
+     * @param {string} targetModel
+     */
+    const requestGenerateContent = async (targetModel) => {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent`
+        const response = await fetchFn(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-goog-api-key": trimmedKey
+            },
+            body: JSON.stringify({
+                contents: [{ role: "user", parts }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    temperature: 0.2
+                }
+            })
         })
-    })
-
-    const data = await response.json().catch(() => null)
-    if (!response.ok) {
-        const apiError = data?.error?.message || `HTTP ${response.status} ${response.statusText}`
-        throw new Error(`Erro na API do Gemini (${chosenModel}): ${apiError}`)
+        const data = await response.json().catch(() => null)
+        if (!response.ok) {
+            return {
+                ok: false,
+                status: response.status,
+                data: null,
+                errorMessage: data?.error?.message || `HTTP ${response.status} ${response.statusText}`
+            }
+        }
+        return { ok: true, status: response.status, data, errorMessage: "" }
     }
 
-    const rawText = data?.candidates?.[0]?.content?.parts
+    /** @type {Set<string>} */
+    const triedModels = new Set()
+    /** @type {string[]} */
+    const candidateQueue = [chosenModel]
+    let enqueuedStaticFallbacks = false
+    let lastErrorMessage = ""
+
+    /** @type {any} */
+    let successData = null
+    let winningModel = chosenModel
+
+    while (candidateQueue.length > 0) {
+        const candidate = /** @type {string} */ (candidateQueue.shift())
+        if (!candidate || triedModels.has(candidate)) {
+            continue
+        }
+        triedModels.add(candidate)
+
+        const result = await requestGenerateContent(candidate)
+        if (result.ok) {
+            successData = result.data
+            winningModel = candidate
+            break
+        }
+
+        lastErrorMessage = result.errorMessage
+        if (!isModelAvailabilityError(result.status, result.errorMessage)) {
+            throw new Error(`Erro na API do Gemini (${candidate}): ${result.errorMessage}`)
+        }
+
+        const suggested = extractSuggestedGeminiModel(result.errorMessage, candidate)
+        if (suggested && !triedModels.has(suggested) && !candidateQueue.includes(suggested)) {
+            candidateQueue.unshift(suggested)
+        }
+        if (!enqueuedStaticFallbacks) {
+            enqueuedStaticFallbacks = true
+            for (const fallback of GEMINI_MODELS) {
+                if (!triedModels.has(fallback) && !candidateQueue.includes(fallback)) {
+                    candidateQueue.push(fallback)
+                }
+            }
+        }
+    }
+
+    if (!successData) {
+        const discovered = await discoverGeminiModel(fetchFn, trimmedKey, triedModels)
+        if (discovered) {
+            triedModels.add(discovered)
+            const discoveredResult = await requestGenerateContent(discovered)
+            if (discoveredResult.ok) {
+                successData = discoveredResult.data
+                winningModel = discovered
+            } else {
+                lastErrorMessage = discoveredResult.errorMessage
+            }
+        }
+    }
+
+    if (!successData) {
+        throw new Error(`Erro na API do Gemini (${chosenModel}): ${lastErrorMessage}`)
+    }
+
+    if (winningModel !== chosenModel) {
+        persistWorkingGeminiModel(winningModel)
+    }
+
+    const rawText = successData?.candidates?.[0]?.content?.parts
         ?.map((/** @type {any} */ part) => part?.text || "")
         .join("\n")
 
@@ -1512,7 +1700,7 @@ export async function generateAtaAtIndex(index, options = {}) {
         throw { errorCode: "017", errorMessage: "Chave API do Google Gemini não configurada." }
     }
 
-    const model = options.model || resultSync.geminiModel || DEFAULT_GEMINI_MODEL
+    const model = resolveGeminiModel(options.model || resultSync.geminiModel)
     const clientName = options.clientName ?? resultSync.ataClientName ?? ""
     const subdiretoria = options.subdiretoria ?? resultSync.ataSubdiretoria ?? ""
 

@@ -1,7 +1,7 @@
 import { ALARM_NAME } from "./config.js"
 import { processLastMeeting, recoverLastMeeting } from "./meetings.js"
 import { downloadTranscript, postTranscriptToWebhook } from "./exporters.js"
-import { generateAtaAtIndex, downloadAtaAtIndex, DEFAULT_GEMINI_MODEL } from "./ata-generator.js"
+import { generateAtaAtIndex, downloadAtaAtIndex, resolveGeminiModel } from "./ata-generator.js"
 import {
     getPermissionStatus,
     requestPlatformPermission,
@@ -400,7 +400,7 @@ chrome.runtime?.onInstalled?.addListener(() => {
             autoPostWebhookAfterMeeting: resultSync.autoPostWebhookAfterMeeting === false ? false : true,
             autoDownloadFileAfterMeeting: resultSync.autoDownloadFileAfterMeeting === false ? false : true,
             autoGenerateAtaAfterMeeting: resultSync.autoGenerateAtaAfterMeeting === true ? true : false,
-            geminiModel: resultSync.geminiModel || DEFAULT_GEMINI_MODEL,
+            geminiModel: resolveGeminiModel(resultSync.geminiModel),
             operationMode: resultSync.operationMode === "manual" ? "manual" : "auto",
             hideCaptions: resultSync.hideCaptions === true ? true : false,
             webhookBodyType: resultSync.webhookBodyType === "advanced" ? "advanced" : "simple",

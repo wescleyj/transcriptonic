@@ -4,6 +4,7 @@
 
 import {
     DEFAULT_GEMINI_MODEL,
+    resolveGeminiModel,
     escapeHtml,
     buildAtaHtml,
     buildTranscriptAccessInfo,
@@ -458,7 +459,11 @@ function initGeminiAndTemplateSettings() {
         function (resultSyncUntyped) {
             const resultSync = /** @type {ResultSync} */ (resultSyncUntyped || {})
             if (geminiModelSelect) {
-                geminiModelSelect.value = resultSync.geminiModel || DEFAULT_GEMINI_MODEL
+                const resolvedModel = resolveGeminiModel(resultSync.geminiModel)
+                geminiModelSelect.value = resolvedModel
+                if (resultSync.geminiModel !== resolvedModel) {
+                    chrome.storage.sync.set({ geminiModel: resolvedModel })
+                }
             }
             if (autoGenerateAtaCheckbox) {
                 autoGenerateAtaCheckbox.checked = resultSync.autoGenerateAtaAfterMeeting === true

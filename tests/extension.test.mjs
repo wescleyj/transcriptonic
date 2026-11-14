@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 
 import {
     DEFAULT_GEMINI_MODEL,
+    resolveGeminiModel,
     buildAtaDocxBytes,
     buildAtaDocxBytesFromTemplate,
     buildAtaHtml,
@@ -517,6 +518,77 @@ describe("Security audit & privacy regressions", () => {
         assert.equal(result.cliente, "Sofia Tecnologia")
         assert.deepEqual(result.participantes, ["Sofia", "Wescley"])
         assert.equal(result.pauta[0].numero, "2.1.")
+    })
+
+    it("migrates unavailable legacy Gemini models and auto-falls back on 404 model availability errors", async () => {
+        assert.equal(DEFAULT_GEMINI_MODEL, "gemini-3.5-flash-lite")
+        assert.equal(resolveGeminiModel("gemini-2.5-flash-lite"), "gemini-3.5-flash-lite")
+        assert.equal(resolveGeminiModel("models/gemini-2.5-flash-lite"), "gemini-3.5-flash-lite")
+        assert.equal(resolveGeminiModel("gemini-3.5-flash"), "gemini-3.5-flash")
+
+        /** @type {string[]} */
+        const requestedUrls = []
+        const mockFetch = async (url) => {
+            requestedUrls.push(String(url))
+            if (requestedUrls.length === 1) {
+                return {
+                    ok: false,
+                    status: 404,
+                    statusText: "Not Found",
+                    json: async () => ({
+                        error: {
+                            message: "This model models/gemini-deprecated-custom is no longer available to new users. Please update your code to use models/gemini-3.5-flash-lite for the latest features and improvements."
+                        }
+                    })
+                }
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    candidates: [{
+                        content: {
+                            parts: [{
+                                text: JSON.stringify({
+                                    cliente: "Acme Ltda",
+                                    local: "Meet",
+                                    dataHorario: "21/10/2026; 15:00",
+                                    participantes: ["Ana"],
+                                    ausentes: "-----",
+                                    subdiretoria: "Operações",
+                                    objetivo: "Validação de modelo.",
+                                    pauta: [],
+                                    encaminhamentos: []
+                                })
+                            }]
+                        }
+                    }]
+                })
+            }
+        }
+
+        const ata = await callGeminiForAta({
+            apiKey: "AIza-TEST-FALLBACK",
+            model: "gemini-deprecated-custom",
+            meeting: {
+                meetingSoftware: "Google Meet",
+                meetingTitle: "Teste Fallback",
+                meetingStartTimestamp: "2026-10-21T15:00:00.000Z",
+                meetingEndTimestamp: "2026-10-21T15:30:00.000Z",
+                transcript: [
+                    { personName: "Ana", timestamp: "2026-10-21T15:05:00.000Z", transcriptText: "Teste de fallback." }
+                ],
+                chatMessages: [],
+                webhookPostStatus: "new"
+            },
+            fetchImpl: /** @type {any} */ (mockFetch)
+        })
+
+        assert.equal(requestedUrls.length, 2)
+        assert.ok(requestedUrls[0].includes("models/gemini-deprecated-custom:generateContent"))
+        assert.ok(requestedUrls[1].includes("models/gemini-3.5-flash-lite:generateContent"))
+        assert.equal(ata.cliente, "Acme Ltda")
+        assert.deepEqual(ata.participantes, ["Ana"])
     })
 })
 

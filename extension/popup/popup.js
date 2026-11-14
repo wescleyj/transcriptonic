@@ -14,7 +14,25 @@ const PLATFORM_PERMISSION_ORIGINS = {
   zoom: ["https://*.zoom.us/*"]
 }
 
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+const LEGACY_GEMINI_MODELS = new Set([
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
+])
+
+/**
+ * Normalizes and migrates legacy Gemini model identifiers to the active default.
+ * @param {string | undefined | null} model
+ * @returns {string}
+ */
+function resolveGeminiModel(model) {
+  const clean = String(model || "").trim().replace(/^models\//i, "")
+  if (!clean || LEGACY_GEMINI_MODELS.has(clean)) {
+    return DEFAULT_GEMINI_MODEL
+  }
+  return clean
+}
 
 window.onload = function () {
   if (chrome.scripting && typeof chrome.scripting.getRegisteredContentScripts === "function") {
@@ -82,9 +100,13 @@ window.onload = function () {
     }
 
     if (geminiModelSelect) {
-      geminiModelSelect.value = resultSync.geminiModel || DEFAULT_GEMINI_MODEL
+      const resolvedModel = resolveGeminiModel(resultSync.geminiModel)
+      geminiModelSelect.value = resolvedModel
+      if (resultSync.geminiModel !== resolvedModel) {
+        chrome.storage.sync.set({ geminiModel: resolvedModel }, function () { })
+      }
       geminiModelSelect.addEventListener("change", function () {
-        chrome.storage.sync.set({ geminiModel: geminiModelSelect.value }, function () { })
+        chrome.storage.sync.set({ geminiModel: geminiModelSelect.value || DEFAULT_GEMINI_MODEL }, function () { })
       })
     }
 
