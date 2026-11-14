@@ -431,7 +431,7 @@ function refreshGeminiLocalUi() {
             const custom = resultLocal.customAtaTemplate
             ataTemplateStatus.textContent = custom?.fileName
                 ? `Personalizado: ${custom.fileName}`
-                : "Padrão embutido (templates/modelo-ata.pdf)"
+                : "Padrão embutido (MODELO ATA.docx)"
         }
     })
 }
@@ -602,7 +602,7 @@ function initGeminiAndTemplateSettings() {
             chrome.storage.local.remove(["customAtaTemplate"], function () {
                 refreshGeminiLocalUi()
                 if (geminiFeedback) {
-                    geminiFeedback.textContent = "Modelo padrão restaurado (templates/modelo-ata.pdf)."
+                    geminiFeedback.textContent = "Modelo padrão restaurado (MODELO ATA.docx)."
                 }
             })
         })

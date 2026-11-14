@@ -110,6 +110,11 @@
  * @property {string[]} conteudo
  */
 /**
+ * @typedef {Object} AtaTabelaResumoItem
+ * @property {string} aspecto
+ * @property {string} detalhes
+ */
+/**
  * @typedef {Object} AtaData
  * @property {string} cliente
  * @property {string} local
@@ -120,6 +125,7 @@
  * @property {string} objetivo
  * @property {AtaPautaSecao[]} pauta
  * @property {AtaEncaminhamento[]} encaminhamentos
+ * @property {AtaTabelaResumoItem[]} [tabelaResumo]
  * @property {AtaSecaoExtra[]} [secoesExtras]
  */
 /**

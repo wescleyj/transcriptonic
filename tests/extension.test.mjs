@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 import {
     DEFAULT_GEMINI_MODEL,
     buildAtaDocxBytes,
+    buildAtaDocxBytesFromTemplate,
     buildAtaHtml,
     buildTranscriptAccessInfo,
     callGeminiForAta,
@@ -514,7 +515,7 @@ describe("Security audit & privacy regressions", () => {
 })
 
 describe("DOCX ZIP/XML & HTML Ata generation", () => {
-    it("reads bundled templates/modelo-ata.docx cleanly", async () => {
+    it("reads bundled MODELO ATA.docx cleanly", async () => {
         const docxBytes = new Uint8Array(fs.readFileSync(path.join(EXTENSION_DIR, "templates/modelo-ata.docx")))
         const extracted = await extractTextFromDocxBytes(docxBytes)
         assert.ok(extracted.includes("ATA DE REUNIÃO"))
@@ -523,11 +524,12 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.ok(extracted.includes("PARTICIPANTES"))
         assert.ok(extracted.includes("AUSENTES"))
         assert.ok(extracted.includes("SUBDIRETORIA"))
-        assert.ok(extracted.includes("1. OBJETIVO DA REUNIÃO"))
-        assert.ok(extracted.includes("3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS"))
+        assert.ok(extracted.includes("I. Pauta da Reunião"))
+        assert.ok(extracted.includes("Ass"))
+        assert.ok(extracted.includes("Diretor:"))
     })
 
-    it("generates valid DOCX archive with 5-column metadata table, sections 1-4, transcript link, and XML escaping", async () => {
+    it("generates valid DOCX cloned from MODELO ATA.docx preserving fonts, styles, tables 1-3, transcript link, and XML escaping", async () => {
         const sampleAta = {
             cliente: 'Empresa A & B <Filial "Sul">',
             local: "Meet",
@@ -549,6 +551,10 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
                     ]
                 }
             ],
+            tabelaResumo: [
+                { aspecto: "Escopo", detalhes: "Landing page & gestão mensal" },
+                { aspecto: "Investimento", detalhes: "R$ 400,00/mês" }
+            ],
             encaminhamentos: [
                 { responsavel: "Wescley", acoes: ["Abrir PR no fork & rodar testes"] }
             ],
@@ -562,25 +568,32 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
             chatCount: 3
         }
 
-        const docxBytes = buildAtaDocxBytes(sampleAta, accessInfo)
+        const templateBytes = new Uint8Array(fs.readFileSync(path.join(EXTENSION_DIR, "templates/modelo-ata.docx")))
+        const docxBytes = await buildAtaDocxBytesFromTemplate(sampleAta, accessInfo, templateBytes)
         assert.equal(docxBytes[0], 0x50)
         assert.equal(docxBytes[1], 0x4b)
 
         const entries = await readZipEntries(docxBytes)
-        for (const xmlPath of [
+        for (const requiredEntry of [
             "[Content_Types].xml",
             "_rels/.rels",
             "word/_rels/document.xml.rels",
             "word/styles.xml",
+            "word/numbering.xml",
+            "word/theme/theme1.xml",
+            "word/fonts/Antonio-bold.ttf",
+            "word/fonts/Arimo-bold.ttf",
             "word/document.xml"
         ]) {
-            assert.ok(entries.has(xmlPath), `DOCX missing ${xmlPath}`)
+            assert.ok(entries.has(requiredEntry), `DOCX missing ${requiredEntry}`)
         }
 
-        // Validate every XML entry parses cleanly with Python ElementTree
+        // Validate every XML/rels entry parses cleanly with Python ElementTree
         const xmlPayload = {}
         for (const [name, bytes] of entries.entries()) {
-            xmlPayload[name] = Buffer.from(bytes).toString("utf8")
+            if (/\.(xml|rels)$/i.test(name)) {
+                xmlPayload[name] = Buffer.from(bytes).toString("utf8")
+            }
         }
         execFileSync(
             "python3",
@@ -597,18 +610,30 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         const relsXml = xmlPayload["word/_rels/document.xml.rels"]
 
         assert.ok(docXml.includes("Empresa A &amp; B &lt;Filial &quot;Sul&quot;&gt;"))
+        assert.ok(docXml.includes(`w:tblStyle w:val="Table1"`))
+        assert.ok(docXml.includes(`w:tblStyle w:val="Table2"`))
+        assert.ok(docXml.includes(`w:tblStyle w:val="Table3"`))
+        assert.ok(docXml.includes(`w:fill="d4f8f8"`))
         assert.ok(docXml.includes("LOCAL"))
         assert.ok(docXml.includes("DATA E HORÁRIO"))
         assert.ok(docXml.includes("PARTICIPANTES"))
         assert.ok(docXml.includes("AUSENTES"))
         assert.ok(docXml.includes("SUBDIRETORIA"))
+        assert.ok(docXml.includes("Aspecto"))
+        assert.ok(docXml.includes("Landing page &amp; gestão mensal"))
         assert.ok(docXml.includes("1. OBJETIVO DA REUNIÃO"))
         assert.ok(docXml.includes("2. PAUTA E PONTOS DISCUTIDOS"))
         assert.ok(docXml.includes("3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS"))
         assert.ok(docXml.includes("4. ACESSO À TRANSCRIÇÃO COMPLETA"))
         assert.ok(docXml.includes("Ass"))
         assert.ok(docXml.includes("Diretor:"))
-        assert.ok(relsXml.includes("Target=\"chrome-extension://abcdef/meetings.html?transcript=2\""))
+        assert.ok(relsXml.includes(`Target="chrome-extension://abcdef/meetings.html?transcript=2"`))
+        assert.ok(relsXml.includes(`Target="styles.xml"`))
+
+        // Also validate standalone buildAtaDocxBytes without templateBytes
+        const standaloneBytes = buildAtaDocxBytes(sampleAta, accessInfo)
+        assert.equal(standaloneBytes[0], 0x50)
+        assert.equal(standaloneBytes[1], 0x4b)
     })
 
     it("escapes XSS and blocks unsafe javascript: links in HTML Ata preview", async () => {

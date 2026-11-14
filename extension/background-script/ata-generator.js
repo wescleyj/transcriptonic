@@ -14,16 +14,17 @@ export const GEMINI_MODELS = [
     "gemini-2.0-flash"
 ]
 
-const DEFAULT_TEMPLATE_SPEC = `Estrutura padrão da ATA DE REUNIÃO:
-- Cabeçalho: "ATA DE REUNIÃO" (azul #0B4A9B, caixa alta, negrito) + linha divisória + "Cliente - Nome da Empresa"
-- Tabela de metadados com 5 colunas (cabeçalho #0B4A9B texto branco, corpo #CFEEEE):
+const DEFAULT_TEMPLATE_SPEC = `Estrutura padrão da ATA DE REUNIÃO (baseada no MODELO ATA.docx):
+- Banner superior (Tabela 1): "ATA DE REUNIÃO" (fonte Antonio, azul #004AAD, negrito, borda inferior #047176)
+- Subtítulo em negrito (fonte Arimo #000000): "Cliente - Nome da Empresa" ou título da reunião
+- Tabela de metadados com 5 colunas (bordas turquesa #00D0DD, cabeçalho #004AAD texto branco Canva Sans Bold, corpo #D4F8F8 Canva Sans):
   LOCAL | DATA E HORÁRIO | PARTICIPANTES | AUSENTES | SUBDIRETORIA
-- Seção "I. Pauta da Reunião" (azul #0B4A9B)
+- Seção "I. Pauta da Reunião" (azul #004AAD, negrito) com lista dos principais itens de pauta
 - "1. OBJETIVO DA REUNIÃO": parágrafo objetivo resumindo o propósito da reunião
-- "2. PAUTA E PONTOS DISCUTIDOS": subseções numeradas (2.1., 2.2., ...) com tópicos em marcador sólido (● Título: descrição) e subtópicos (○ detalhe)
+- "2. PAUTA E PONTOS DISCUTIDOS": subseções numeradas (2.1., 2.2., ... em #047176) com tópicos em marcador sólido (● Título: descrição) e subtópicos (○ detalhe) + tabela-resumo opcional ("Aspecto" #004AAD | "Detalhes da Execução" #D4F8F8) quando houver escopo/cronograma/investimento estruturado
 - "3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS": lista numerada por responsável (1. Nome:) com ações em sub-marcador (○ ação)
 - "4. ACESSO À TRANSCRIÇÃO COMPLETA": referência e link direto para a transcrição integral
-- Assinatura final: "Ass" e "Diretor:" (azul #0B4A9B)`
+- Assinatura final: "Ass" e "Diretor:" (azul #004AAD, negrito)`
 
 /** @type {Uint32Array | null} */
 let crc32Table = null
@@ -344,9 +345,59 @@ export function extractUniqueParticipants(meeting) {
 }
 
 /**
- * Loads the active Ata template (custom uploaded template from storage or bundled modelo-ata.pdf).
+ * Encodes raw bytes to Base64 without blowing the call stack on embedded fonts.
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function bytesToBase64(bytes) {
+    let binary = ""
+    const chunkSize = 0x8000
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+    }
+    return btoa(binary)
+}
+
+/**
+ * Decodes a Base64 string into Uint8Array bytes.
+ * @param {string} base64Data
+ * @returns {Uint8Array}
+ */
+function base64ToBytes(base64Data) {
+    const binary = atob(base64Data)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
+}
+
+/**
+ * Fetches a bundled file from the extension package if available.
+ * @param {string} assetPath
+ * @param {typeof fetch | undefined} fetchFn
+ * @returns {Promise<Uint8Array | null>}
+ */
+async function fetchBundledAssetBytes(assetPath, fetchFn) {
+    if (!fetchFn || typeof chrome === "undefined" || !chrome.runtime?.getURL) {
+        return null
+    }
+    try {
+        const assetUrl = chrome.runtime.getURL(assetPath)
+        const response = await fetchFn(assetUrl)
+        if (!response.ok) {
+            return null
+        }
+        return new Uint8Array(await response.arrayBuffer())
+    } catch (_err) {
+        return null
+    }
+}
+
+/**
+ * Loads the active Ata template (custom uploaded template from storage or bundled MODELO ATA.docx / modelo-ata.pdf).
  * @param {{ fetchImpl?: typeof fetch }} [deps]
- * @returns {Promise<{ source: string, fileName: string, mimeType: string, base64Data?: string, extractedText?: string }>}
+ * @returns {Promise<{ source: string, fileName: string, mimeType: string, base64Data?: string, extractedText?: string, docxBytes?: Uint8Array | null }>}
  */
 export async function loadAtaTemplate(deps = {}) {
     const fetchFn = deps.fetchImpl || (typeof fetch === "function" ? fetch : undefined)
@@ -362,19 +413,22 @@ export async function loadAtaTemplate(deps = {}) {
     const custom = /** @type {CustomAtaTemplate | undefined} */ (localData.customAtaTemplate)
     if (custom && (custom.base64Data || custom.extractedText)) {
         let extractedText = custom.extractedText
+        /** @type {Uint8Array | null} */
+        let docxBytes = null
         const isDocx = /\.docx$/i.test(custom.fileName || "") ||
             (custom.mimeType || "").includes("wordprocessingml")
-        if (isDocx && !extractedText && custom.base64Data) {
+        if (isDocx && custom.base64Data) {
             try {
-                const binary = atob(custom.base64Data)
-                const bytes = new Uint8Array(binary.length)
-                for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i)
+                docxBytes = base64ToBytes(custom.base64Data)
+                if (!extractedText) {
+                    extractedText = await extractTextFromDocxBytes(docxBytes)
                 }
-                extractedText = await extractTextFromDocxBytes(bytes)
             } catch (err) {
                 console.warn("Could not extract text from custom DOCX template:", err)
             }
+        } else {
+            // Keep bundled MODELO ATA.docx styling when user only uploads a PDF reference
+            docxBytes = await fetchBundledAssetBytes("templates/modelo-ata.docx", fetchFn)
         }
         return {
             source: "custom",
@@ -383,39 +437,45 @@ export async function loadAtaTemplate(deps = {}) {
                 ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 : "application/pdf"),
             base64Data: custom.base64Data,
-            extractedText
+            extractedText,
+            docxBytes
         }
     }
 
-    if (fetchFn && typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+    const defaultDocxBytes = await fetchBundledAssetBytes("templates/modelo-ata.docx", fetchFn)
+    if (defaultDocxBytes) {
+        let extractedText = DEFAULT_TEMPLATE_SPEC
         try {
-            const pdfUrl = chrome.runtime.getURL("templates/modelo-ata.pdf")
-            const response = await fetchFn(pdfUrl)
-            if (response.ok) {
-                const buffer = await response.arrayBuffer()
-                const bytes = new Uint8Array(buffer)
-                let binary = ""
-                const chunkSize = 0x8000
-                for (let i = 0; i < bytes.length; i += chunkSize) {
-                    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-                }
-                return {
-                    source: "default",
-                    fileName: "modelo-ata.pdf",
-                    mimeType: "application/pdf",
-                    base64Data: btoa(binary)
-                }
-            }
+            extractedText = await extractTextFromDocxBytes(defaultDocxBytes)
         } catch (err) {
-            console.warn("Could not load bundled modelo-ata.pdf, falling back to spec:", err)
+            console.warn("Could not extract text from bundled modelo-ata.docx:", err)
+        }
+        return {
+            source: "default",
+            fileName: "MODELO ATA.docx",
+            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            extractedText,
+            docxBytes: defaultDocxBytes
+        }
+    }
+
+    const defaultPdfBytes = await fetchBundledAssetBytes("templates/modelo-ata.pdf", fetchFn)
+    if (defaultPdfBytes) {
+        return {
+            source: "default",
+            fileName: "modelo-ata.pdf",
+            mimeType: "application/pdf",
+            base64Data: bytesToBase64(defaultPdfBytes),
+            docxBytes: null
         }
     }
 
     return {
         source: "builtin-spec",
-        fileName: "modelo-ata.pdf",
+        fileName: "MODELO ATA.docx",
         mimeType: "text/plain",
-        extractedText: DEFAULT_TEMPLATE_SPEC
+        extractedText: DEFAULT_TEMPLATE_SPEC,
+        docxBytes: null
     }
 }
 
@@ -482,6 +542,15 @@ export function normalizeAtaData(raw, meeting, options = {}) {
         }))
         : []
 
+    const tabelaResumo = Array.isArray(raw?.tabelaResumo)
+        ? raw.tabelaResumo
+            .map((/** @type {any} */ row) => ({
+                aspecto: String(row?.aspecto || "").trim(),
+                detalhes: String(row?.detalhes || "").trim()
+            }))
+            .filter((/** @type {AtaTabelaResumoItem} */ row) => row.aspecto || row.detalhes)
+        : []
+
     const secoesExtras = Array.isArray(raw?.secoesExtras)
         ? raw.secoesExtras
             .map((/** @type {any} */ sec) => ({
@@ -503,6 +572,7 @@ export function normalizeAtaData(raw, meeting, options = {}) {
         objetivo: String(raw?.objetivo || "Registro dos pontos discutidos e encaminhamentos da reunião.").trim(),
         pauta,
         encaminhamentos,
+        tabelaResumo,
         secoesExtras
     }
 }
@@ -599,6 +669,12 @@ REGRAS DE PREENCHIMENTO:
       "acoes": ["Ação concreta combinada com prazo/contexto se houver"]
     }
   ],
+  "tabelaResumo": [
+    {
+      "aspecto": "Escopo / Prazo / Investimento (preencher apenas se houver parâmetros objetivos definidos, senão [])",
+      "detalhes": "Descrição consolidada do item"
+    }
+  ],
   "secoesExtras": []
 }
 2. Não invente fatos que não estejam na transcrição ou no chat.
@@ -660,48 +736,78 @@ function isSafeLinkUrl(url) {
 }
 
 /**
- * Builds the OpenXML Word (.docx) bytes matching ATA - Sofia - 21_10.docx.pdf.
+ * Injects or refreshes the rIdTranscript external hyperlink relationship inside document.xml.rels.
+ * @param {string} relsXml
+ * @param {string | undefined} viewUrl
+ * @returns {string}
+ */
+function injectTranscriptHyperlinkRel(relsXml, viewUrl) {
+    const cleaned = relsXml.replace(/<Relationship\b[^>]*\bId="rIdTranscript"[^>]*\/>/g, "")
+    if (!isSafeLinkUrl(viewUrl)) {
+        return cleaned
+    }
+    const relTag = `<Relationship Id="rIdTranscript" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(viewUrl)}" TargetMode="External"/>`
+    if (cleaned.includes("</Relationships>")) {
+        return cleaned.replace("</Relationships>", `${relTag}</Relationships>`)
+    }
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${relTag}
+</Relationships>`
+}
+
+/**
+ * Builds the OpenXML Word (.docx) bytes matching MODELO ATA.docx layout, colors, and fonts.
+ * When templateEntries (from readZipEntries) is provided, embedded fonts, theme, numbering, and styles are preserved.
  * @param {AtaData} ataData
  * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
+ * @param {Map<string, Uint8Array> | null} [templateEntries]
  * @returns {Uint8Array}
  */
-export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
+export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEntries = null) {
     const encoder = new TextEncoder()
     const hasHyperlink = isSafeLinkUrl(transcriptAccessInfo.viewUrl)
     const transcriptFileLabel = transcriptAccessInfo.transcriptFileName || "TranscripTonic/Transcript.txt"
     const transcriptCount = transcriptAccessInfo.transcriptCount ?? 0
     const chatCount = transcriptAccessInfo.chatCount ?? 0
 
-    const colWidths = [1250, 1750, 2600, 1600, 2438] // Sum = 9638 dxa (~17cm on A4 with 2cm margins)
+    // Exact column widths from Table2 of MODELO ATA.docx (sum = 10632 dxa)
+    const colWidths = [1586, 1731, 2018, 1775, 3522]
 
-    const makeHeaderCell = (/** @type {string} */ label, /** @type {number} */ width) => `
+    const makeHeaderCell = (/** @type {string} */ label, /** @type {number} */ width, /** @type {boolean} */ isFirst, /** @type {boolean} */ isLast) => `
         <w:tc>
           <w:tcPr>
             <w:tcW w:w="${width}" w:type="dxa"/>
-            <w:shd w:val="clear" w:color="auto" w:fill="0B4A9B"/>
+            <w:tcBorders>
+              <w:top w:val="single" w:sz="6" w:space="0" w:color="f6ffff"/>
+              ${isFirst ? `<w:left w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>` : ""}
+              <w:bottom w:val="single" w:sz="6" w:space="0" w:color="047176"/>
+              ${isLast ? `<w:right w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>` : ""}
+            </w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="004aad"/>
             <w:tcMar>
-              <w:top w:w="140" w:type="dxa"/>
+              <w:top w:w="120" w:type="dxa"/>
               <w:left w:w="120" w:type="dxa"/>
-              <w:bottom w:w="140" w:type="dxa"/>
+              <w:bottom w:w="120" w:type="dxa"/>
               <w:right w:w="120" w:type="dxa"/>
             </w:tcMar>
             <w:vAlign w:val="center"/>
           </w:tcPr>
           <w:p>
-            <w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="0"/></w:pPr>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="120" w:line="336" w:lineRule="auto"/></w:pPr>
             <w:r>
-              <w:rPr><w:b/><w:color w:val="FFFFFF"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>
+              <w:rPr><w:rFonts w:ascii="Canva Sans Bold" w:cs="Canva Sans Bold" w:eastAsia="Canva Sans Bold" w:hAnsi="Canva Sans Bold"/><w:b/><w:bCs/><w:color w:val="ffffff"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
               <w:t>${escapeXml(label)}</w:t>
             </w:r>
           </w:p>
         </w:tc>`
 
-    const makeValueCell = (/** @type {string[]} */ lines, /** @type {number} */ width) => {
+    const makeValueCell = (/** @type {string[]} */ lines, /** @type {number} */ width, /** @type {boolean} */ isFirst, /** @type {boolean} */ isLast) => {
         const paragraphs = (lines.length ? lines : [""]).map(line => `
           <w:p>
-            <w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="60"/></w:pPr>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:before="40" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
             <w:r>
-              <w:rPr><w:color w:val="111111"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr>
+              <w:rPr><w:rFonts w:ascii="Canva Sans" w:cs="Canva Sans" w:eastAsia="Canva Sans" w:hAnsi="Canva Sans"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
               <w:t xml:space="preserve">${escapeXml(line)}</w:t>
             </w:r>
           </w:p>`).join("")
@@ -710,11 +816,17 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
         <w:tc>
           <w:tcPr>
             <w:tcW w:w="${width}" w:type="dxa"/>
-            <w:shd w:val="clear" w:color="auto" w:fill="CFEEEE"/>
+            <w:tcBorders>
+              <w:top w:val="single" w:sz="6" w:space="0" w:color="047176"/>
+              ${isFirst ? `<w:left w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>` : ""}
+              <w:bottom w:val="single" w:sz="6" w:space="0" w:color="f6ffff"/>
+              ${isLast ? `<w:right w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>` : ""}
+            </w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="d4f8f8"/>
             <w:tcMar>
-              <w:top w:w="160" w:type="dxa"/>
+              <w:top w:w="120" w:type="dxa"/>
               <w:left w:w="120" w:type="dxa"/>
-              <w:bottom w:w="160" w:type="dxa"/>
+              <w:bottom w:w="120" w:type="dxa"/>
               <w:right w:w="120" w:type="dxa"/>
             </w:tcMar>
             <w:vAlign w:val="top"/>
@@ -723,15 +835,18 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
         </w:tc>`
     }
 
-    const participantsLines = ["Membros presentes:", ...(ataData.participantes || [])]
+    const participantsLines = [
+        "Membros presentes:",
+        ...(ataData.participantes || []).map(p => (String(p).startsWith("-") ? String(p) : `- ${p}`))
+    ]
 
     const pautaXml = (ataData.pauta || []).map((sec) => {
         const numPrefix = sec.numero.endsWith(".") ? sec.numero : `${sec.numero}.`
         const headerXml = `
     <w:p>
-      <w:pPr><w:spacing w:before="140" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="140" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="21"/><w:szCs w:val="21"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t xml:space="preserve">${escapeXml(numPrefix)} ${escapeXml(sec.titulo)}</w:t>
       </w:r>
     </w:p>`
@@ -740,16 +855,16 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
             const label = topic.titulo ? `${topic.titulo}: ` : ""
             const mainBullet = `
     <w:p>
-      <w:pPr><w:ind w:left="420" w:hanging="220"/><w:spacing w:before="40" w:after="40"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">● </w:t></w:r>
-      ${label ? `<w:r><w:rPr><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escapeXml(label)}</w:t></w:r>` : ""}
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escapeXml(topic.descricao)}</w:t></w:r>
+      <w:pPr><w:ind w:left="720" w:hanging="360"/><w:spacing w:before="80" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">● </w:t></w:r>
+      ${label ? `<w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escapeXml(label)}</w:t></w:r>` : ""}
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${escapeXml(topic.descricao)}</w:t></w:r>
     </w:p>`
 
             const subBullets = (topic.subtopicos || []).map((sub) => `
     <w:p>
-      <w:pPr><w:ind w:left="840" w:hanging="220"/><w:spacing w:before="20" w:after="40"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(sub)}</w:t></w:r>
+      <w:pPr><w:ind w:left="1440" w:hanging="360"/><w:spacing w:before="40" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(sub)}</w:t></w:r>
     </w:p>`).join("")
 
             return mainBullet + subBullets
@@ -758,36 +873,94 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
         return headerXml + topicosXml
     }).join("")
 
+    // Table3 layout from MODELO ATA.docx (widths 1983 + 8471 = 10454 dxa)
+    const tabelaResumoXml = (ataData.tabelaResumo && ataData.tabelaResumo.length > 0)
+        ? `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblStyle w:val="Table3"/>
+        <w:tblW w:w="10454" w:type="dxa"/>
+        <w:jc w:val="left"/>
+        <w:tblLayout w:type="fixed"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="1983"/>
+        <w:gridCol w:w="8471"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="1983" w:type="dxa"/>
+            <w:tcBorders><w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="004aad"/>
+            <w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>
+          </w:tcPr>
+          <w:p><w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:color w:val="f6ffff"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>Aspecto</w:t></w:r></w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="8471" w:type="dxa"/>
+            <w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="d4f8f8"/>
+            <w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>
+          </w:tcPr>
+          <w:p><w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>Detalhes da Execução</w:t></w:r></w:p>
+        </w:tc>
+      </w:tr>
+      ${ataData.tabelaResumo.map(row => `
+      <w:tr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="1983" w:type="dxa"/>
+            <w:tcBorders><w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="004aad"/>
+            <w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>
+          </w:tcPr>
+          <w:p><w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:color w:val="ffffff"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr><w:t xml:space="preserve">${escapeXml(row.aspecto)}</w:t></w:r></w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="8471" w:type="dxa"/>
+            <w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="d4f8f8"/>
+            <w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar>
+          </w:tcPr>
+          <w:p><w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr><w:t xml:space="preserve">${escapeXml(row.detalhes)}</w:t></w:r></w:p>
+        </w:tc>
+      </w:tr>`).join("")}
+    </w:tbl>`
+        : ""
+
     const encaminhamentosXml = (ataData.encaminhamentos && ataData.encaminhamentos.length > 0)
         ? ataData.encaminhamentos.map((enc, idx) => {
             const respXml = `
     <w:p>
-      <w:pPr><w:ind w:left="360" w:hanging="220"/><w:spacing w:before="80" w:after="40"/></w:pPr>
-      <w:r><w:rPr><w:b/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${idx + 1}. ${escapeXml(enc.responsavel)}:</w:t></w:r>
+      <w:pPr><w:ind w:left="360" w:hanging="220"/><w:spacing w:before="80" w:after="40" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${idx + 1}. ${escapeXml(enc.responsavel)}:</w:t></w:r>
     </w:p>`
             const acoesXml = (enc.acoes || []).map((acao) => `
     <w:p>
-      <w:pPr><w:ind w:left="780" w:hanging="220"/><w:spacing w:before="20" w:after="40"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(acao)}</w:t></w:r>
+      <w:pPr><w:ind w:left="780" w:hanging="220"/><w:spacing w:before="20" w:after="40" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(acao)}</w:t></w:r>
     </w:p>`).join("")
             return respXml + acoesXml
         }).join("")
         : `
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="80"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>Nenhum encaminhamento específico registrado.</w:t></w:r>
+      <w:pPr><w:spacing w:before="40" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>Nenhum encaminhamento específico registrado.</w:t></w:r>
     </w:p>`
 
     const extrasXml = (ataData.secoesExtras || []).map((sec) => {
         const heading = `
     <w:p>
-      <w:pPr><w:spacing w:before="140" w:after="60"/></w:pPr>
-      <w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>${escapeXml(sec.titulo)}</w:t></w:r>
+      <w:pPr><w:spacing w:before="140" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>${escapeXml(sec.titulo)}</w:t></w:r>
     </w:p>`
         const body = (sec.conteudo || []).map((line) => `
     <w:p>
-      <w:pPr><w:ind w:left="420" w:hanging="220"/><w:spacing w:before="20" w:after="40"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(line)}</w:t></w:r>
+      <w:pPr><w:ind w:left="420" w:hanging="220"/><w:spacing w:before="20" w:after="40" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">○ ${escapeXml(line)}</w:t></w:r>
     </w:p>`).join("")
         return heading + body
     }).join("")
@@ -795,11 +968,11 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
     const transcriptLinkParagraph = hasHyperlink
         ? `
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="60"/></w:pPr>
-      <w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">Link direto na extensão: </w:t></w:r>
+      <w:pPr><w:spacing w:before="40" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">Link direto na extensão: </w:t></w:r>
       <w:hyperlink r:id="rIdTranscript" w:history="1">
         <w:r>
-          <w:rPr><w:rStyle w:val="Hyperlink"/><w:color w:val="0B4A9B"/><w:u w:val="single"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+          <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="004aad"/><w:u w:val="single"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
           <w:t>${escapeXml(transcriptAccessInfo.viewUrl)}</w:t>
         </w:r>
       </w:hyperlink>
@@ -808,106 +981,150 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
 
     const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+            xmlns:v="urn:schemas-microsoft-com:vml"
+            xmlns:o="urn:schemas-microsoft-com:office:office">
   <w:body>
-    <w:p>
-      <w:pPr>
-        <w:pBdr>
-          <w:bottom w:val="single" w:sz="12" w:space="6" w:color="136F63"/>
-        </w:pBdr>
-        <w:spacing w:before="0" w:after="160"/>
-      </w:pPr>
-      <w:r>
-        <w:rPr><w:b/><w:color w:val="0B4A9B"/><w:sz w:val="56"/><w:szCs w:val="56"/></w:rPr>
-        <w:t>ATA DE REUNIÃO</w:t>
-      </w:r>
-    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblStyle w:val="Table1"/>
+        <w:tblW w:w="10659" w:type="dxa"/>
+        <w:jc w:val="left"/>
+        <w:tblInd w:w="180" w:type="dxa"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+          <w:left w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+          <w:bottom w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+          <w:right w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="ffffff"/>
+        </w:tblBorders>
+        <w:tblLayout w:type="fixed"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="8060"/>
+        <w:gridCol w:w="2599"/>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr><w:trHeight w:val="2000" w:hRule="atLeast"/></w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="8060" w:type="dxa"/>
+            <w:tcBorders><w:bottom w:val="single" w:sz="6" w:space="0" w:color="047176"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="ffffff"/>
+            <w:tcMar><w:top w:w="180" w:type="dxa"/><w:left w:w="180" w:type="dxa"/><w:bottom w:w="180" w:type="dxa"/><w:right w:w="180" w:type="dxa"/></w:tcMar>
+            <w:vAlign w:val="center"/>
+          </w:tcPr>
+          <w:p>
+            <w:pPr><w:spacing w:before="120" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>
+            <w:r>
+              <w:rPr><w:rFonts w:ascii="Antonio" w:cs="Antonio" w:eastAsia="Antonio" w:hAnsi="Antonio"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="112"/><w:szCs w:val="112"/></w:rPr>
+              <w:t>ATA DE REUNIÃO</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="2599" w:type="dxa"/>
+            <w:tcBorders><w:bottom w:val="single" w:sz="6" w:space="0" w:color="047176"/></w:tcBorders>
+            <w:shd w:val="clear" w:color="auto" w:fill="ffffff"/>
+            <w:tcMar><w:top w:w="180" w:type="dxa"/><w:left w:w="180" w:type="dxa"/><w:bottom w:w="180" w:type="dxa"/><w:right w:w="180" w:type="dxa"/></w:tcMar>
+          </w:tcPr>
+          <w:p/>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
 
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="140"/></w:pPr>
+      <w:pPr><w:spacing w:before="120" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="000000"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
         <w:t xml:space="preserve">Cliente - ${escapeXml(ataData.cliente)}</w:t>
       </w:r>
     </w:p>
 
     <w:tbl>
       <w:tblPr>
-        <w:tblW w:w="9638" w:type="dxa"/>
+        <w:tblStyle w:val="Table2"/>
+        <w:tblW w:w="10632" w:type="dxa"/>
+        <w:jc w:val="left"/>
+        <w:tblInd w:w="120" w:type="dxa"/>
         <w:tblBorders>
-          <w:top w:val="single" w:sz="6" w:space="0" w:color="0B4A9B"/>
-          <w:left w:val="single" w:sz="6" w:space="0" w:color="0B4A9B"/>
-          <w:bottom w:val="single" w:sz="6" w:space="0" w:color="0B4A9B"/>
-          <w:right w:val="single" w:sz="6" w:space="0" w:color="0B4A9B"/>
-          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="9BC2E6"/>
-          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="FFFFFF"/>
+          <w:top w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
+          <w:left w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
+          <w:bottom w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
+          <w:right w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
+          <w:insideH w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
+          <w:insideV w:val="single" w:sz="6" w:space="0" w:color="00d0dd"/>
         </w:tblBorders>
+        <w:tblLayout w:type="fixed"/>
       </w:tblPr>
       <w:tblGrid>
         ${colWidths.map(w => `<w:gridCol w:w="${w}"/>`).join("")}
       </w:tblGrid>
       <w:tr>
-        ${makeHeaderCell("LOCAL", colWidths[0])}
-        ${makeHeaderCell("DATA E HORÁRIO", colWidths[1])}
-        ${makeHeaderCell("PARTICIPANTES", colWidths[2])}
-        ${makeHeaderCell("AUSENTES", colWidths[3])}
-        ${makeHeaderCell("SUBDIRETORIA", colWidths[4])}
+        ${makeHeaderCell("LOCAL", colWidths[0], true, false)}
+        ${makeHeaderCell("DATA E HORÁRIO", colWidths[1], false, false)}
+        ${makeHeaderCell("PARTICIPANTES", colWidths[2], false, false)}
+        ${makeHeaderCell("AUSENTES", colWidths[3], false, true)}
+        ${makeHeaderCell("SUBDIRETORIA", colWidths[4], false, true)}
       </w:tr>
       <w:tr>
-        ${makeValueCell([ataData.local], colWidths[0])}
-        ${makeValueCell([ataData.dataHorario], colWidths[1])}
-        ${makeValueCell(participantsLines, colWidths[2])}
-        ${makeValueCell([ataData.ausentes || "-----"], colWidths[3])}
-        ${makeValueCell([ataData.subdiretoria || ""], colWidths[4])}
+        ${makeValueCell([ataData.local], colWidths[0], true, false)}
+        ${makeValueCell([ataData.dataHorario], colWidths[1], false, false)}
+        ${makeValueCell(participantsLines, colWidths[2], false, false)}
+        ${makeValueCell([ataData.ausentes || "-----"], colWidths[3], false, true)}
+        ${makeValueCell([ataData.subdiretoria || ""], colWidths[4], false, true)}
       </w:tr>
     </w:tbl>
 
     <w:p>
-      <w:pPr>
-        <w:pBdr>
-          <w:bottom w:val="single" w:sz="6" w:space="4" w:color="999999"/>
-        </w:pBdr>
-        <w:spacing w:before="200" w:after="140"/>
-      </w:pPr>
+      <w:pPr><w:spacing w:before="120" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r>
+        <w:pict>
+          <v:rect style="width:0.0pt;height:1.5pt" o:hr="t" o:hrstd="t" o:hralign="center" fillcolor="#A0A0A0" stroked="f"/>
+        </w:pict>
+      </w:r>
     </w:p>
 
     <w:p>
-      <w:pPr><w:spacing w:before="60" w:after="140"/></w:pPr>
+      <w:pPr><w:spacing w:before="120" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="0B4A9B"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t>I. Pauta da Reunião</w:t>
       </w:r>
     </w:p>
 
     <w:p>
-      <w:pPr><w:spacing w:before="80" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="100" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t>1. OBJETIVO DA REUNIÃO</w:t>
       </w:r>
     </w:p>
 
     <w:p>
-      <w:pPr><w:spacing w:before="20" w:after="140"/></w:pPr>
+      <w:pPr><w:spacing w:before="20" w:after="140" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:color w:val="111111"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t xml:space="preserve">${escapeXml(ataData.objetivo)}</w:t>
       </w:r>
     </w:p>
 
     <w:p>
-      <w:pPr><w:spacing w:before="100" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="100" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t>2. PAUTA E PONTOS DISCUTIDOS</w:t>
       </w:r>
     </w:p>
     ${pautaXml}
+    ${tabelaResumoXml}
 
     <w:p>
-      <w:pPr><w:spacing w:before="160" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="160" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t>3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS</w:t>
       </w:r>
     </w:p>
@@ -915,49 +1132,85 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
     ${extrasXml}
 
     <w:p>
-      <w:pPr><w:spacing w:before="180" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="180" w:after="80" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="111111"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
         <w:t>4. ACESSO À TRANSCRIÇÃO COMPLETA</w:t>
       </w:r>
     </w:p>
     <w:p>
-      <w:pPr><w:spacing w:before="20" w:after="40"/></w:pPr>
+      <w:pPr><w:spacing w:before="20" w:after="40" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:color w:val="111111"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
         <w:t xml:space="preserve">Arquivo local da transcrição integral (${transcriptCount} falas, ${chatCount} mensagens de chat): ${escapeXml(transcriptFileLabel)}</w:t>
       </w:r>
     </w:p>
     ${transcriptLinkParagraph}
 
     <w:p>
-      <w:pPr><w:spacing w:before="280" w:after="80"/></w:pPr>
+      <w:pPr><w:spacing w:before="280" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="0B4A9B"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
         <w:t>Ass</w:t>
       </w:r>
     </w:p>
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="0"/></w:pPr>
+      <w:pPr><w:spacing w:before="40" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
-        <w:rPr><w:b/><w:color w:val="0B4A9B"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
         <w:t>Diretor:</w:t>
       </w:r>
     </w:p>
 
     <w:sectPr>
-      <w:pgSz w:w="11906" w:h="16838"/>
-      <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/>
+      <w:pgSz w:h="16845" w:w="11910" w:orient="portrait"/>
+      <w:pgMar w:bottom="720" w:top="720" w:left="720" w:right="720" w:header="720" w:footer="720"/>
+      <w:pgNumType w:start="1"/>
     </w:sectPr>
   </w:body>
 </w:document>`
+
+    if (templateEntries && templateEntries.size > 0) {
+        /** @type {Array<{ name: string, data: Uint8Array }>} */
+        const outputEntries = []
+        let hasRels = false
+        let hasDoc = false
+
+        for (const [entryName, entryBytes] of templateEntries.entries()) {
+            if (entryName === "word/document.xml") {
+                hasDoc = true
+                outputEntries.push({ name: entryName, data: encoder.encode(documentXml) })
+            } else if (entryName === "word/_rels/document.xml.rels") {
+                hasRels = true
+                const existingRels = new TextDecoder("utf-8").decode(entryBytes)
+                outputEntries.push({
+                    name: entryName,
+                    data: encoder.encode(injectTranscriptHyperlinkRel(existingRels, transcriptAccessInfo.viewUrl))
+                })
+            } else {
+                outputEntries.push({ name: entryName, data: entryBytes })
+            }
+        }
+
+        if (!hasDoc) {
+            outputEntries.push({ name: "word/document.xml", data: encoder.encode(documentXml) })
+        }
+        if (!hasRels) {
+            outputEntries.push({
+                name: "word/_rels/document.xml.rels",
+                data: encoder.encode(injectTranscriptHyperlinkRel("", transcriptAccessInfo.viewUrl))
+            })
+        }
+
+        return createZipBytes(outputEntries)
+    }
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
     <w:rPrDefault>
       <w:rPr>
-        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>
+        <w:rFonts w:ascii="Arimo" w:hAnsi="Arimo" w:cs="Arimo"/>
         <w:sz w:val="20"/>
         <w:szCs w:val="20"/>
       </w:rPr>
@@ -969,10 +1222,13 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
   <w:style w:type="character" w:styleId="Hyperlink">
     <w:name w:val="Hyperlink"/>
     <w:rPr>
-      <w:color w:val="0B4A9B"/>
+      <w:color w:val="004aad"/>
       <w:u w:val="single"/>
     </w:rPr>
   </w:style>
+  <w:style w:type="table" w:styleId="Table1"><w:name w:val="Table1"/></w:style>
+  <w:style w:type="table" w:styleId="Table2"><w:name w:val="Table2"/></w:style>
+  <w:style w:type="table" w:styleId="Table3"><w:name w:val="Table3"/></w:style>
 </w:styles>`
 
     const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1004,6 +1260,27 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
 }
 
 /**
+ * Generates DOCX bytes by cloning the base DOCX template (e.g. MODELO ATA.docx) when supplied.
+ * Preserves embedded fonts, styles, numbering, and themes from the template package.
+ * @param {AtaData} ataData
+ * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
+ * @param {Uint8Array | null} [templateDocxBytes]
+ * @returns {Promise<Uint8Array>}
+ */
+export async function buildAtaDocxBytesFromTemplate(ataData, transcriptAccessInfo = {}, templateDocxBytes = null) {
+    /** @type {Map<string, Uint8Array> | null} */
+    let templateEntries = null
+    if (templateDocxBytes && templateDocxBytes.length > 0) {
+        try {
+            templateEntries = await readZipEntries(templateDocxBytes)
+        } catch (err) {
+            console.warn("Could not read DOCX template entries, falling back to standalone OOXML:", err)
+        }
+    }
+    return buildAtaDocxBytes(ataData, transcriptAccessInfo, templateEntries)
+}
+
+/**
  * Builds a DOCX Blob for a given AtaData object.
  * @param {AtaData} ataData
  * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
@@ -1011,6 +1288,22 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}) {
  */
 export function buildAtaDocxBlob(ataData, transcriptAccessInfo = {}) {
     const bytes = buildAtaDocxBytes(ataData, transcriptAccessInfo)
+    const bufferCopy = new Uint8Array(bytes.byteLength)
+    bufferCopy.set(bytes)
+    return new Blob([bufferCopy], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    })
+}
+
+/**
+ * Builds a DOCX Blob cloned from the base DOCX template when available.
+ * @param {AtaData} ataData
+ * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
+ * @param {Uint8Array | null} [templateDocxBytes]
+ * @returns {Promise<Blob>}
+ */
+export async function buildAtaDocxBlobFromTemplate(ataData, transcriptAccessInfo = {}, templateDocxBytes = null) {
+    const bytes = await buildAtaDocxBytesFromTemplate(ataData, transcriptAccessInfo, templateDocxBytes)
     const bufferCopy = new Uint8Array(bytes.byteLength)
     bufferCopy.set(bytes)
     return new Blob([bufferCopy], {
@@ -1027,7 +1320,7 @@ export function buildAtaDocxBlob(ataData, transcriptAccessInfo = {}) {
 export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
     const hasHyperlink = isSafeLinkUrl(transcriptAccessInfo.viewUrl)
     const participantsHtml = (ataData.participantes || [])
-        .map(p => `<div>${escapeHtml(p)}</div>`)
+        .map(p => `<div>${escapeHtml(String(p).startsWith("-") ? String(p) : `- ${p}`)}</div>`)
         .join("")
 
     const pautaHtml = (ataData.pauta || []).map((sec) => {
@@ -1049,6 +1342,24 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
             <ul class="main-list">${topicosHtml}</ul>
           </div>`
     }).join("")
+
+    const tabelaResumoHtml = (ataData.tabelaResumo && ataData.tabelaResumo.length > 0)
+        ? `<table class="resumo-table">
+            <thead>
+              <tr>
+                <th>Aspecto</th>
+                <th>Detalhes da Execução</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ataData.tabelaResumo.map(row => `
+                <tr>
+                  <td class="resumo-aspecto">${escapeHtml(row.aspecto)}</td>
+                  <td class="resumo-detalhes">${escapeHtml(row.detalhes)}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>`
+        : ""
 
     const encaminhamentosHtml = (ataData.encaminhamentos && ataData.encaminhamentos.length > 0)
         ? `<ol class="encaminhamentos-list">${ataData.encaminhamentos.map((enc) => `
@@ -1074,22 +1385,25 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
   <meta charset="UTF-8" />
   <title>ATA DE REUNIÃO - ${escapeHtml(ataData.cliente)}</title>
   <style>
-    @page { size: A4; margin: 20mm; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #111111; margin: 0 auto; max-width: 820px; padding: 32px 40px; line-height: 1.5; background: #ffffff; }
-    .ata-title { color: #0B4A9B; font-size: 30px; font-weight: 800; letter-spacing: 0.5px; margin: 0 0 8px 0; border-bottom: 2px solid #136F63; padding-bottom: 6px; text-transform: uppercase; }
-    .ata-client { font-size: 16px; font-weight: 700; margin: 12px 0 16px 0; }
-    table.meta-table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; }
-    table.meta-table th { background: #0B4A9B; color: #ffffff; padding: 10px 8px; text-align: center; font-weight: 700; text-transform: uppercase; border: 1px solid #ffffff; }
-    table.meta-table td { background: #CFEEEE; color: #111111; padding: 12px 8px; text-align: center; vertical-align: top; border: 1px solid #b5dede; }
-    .section-divider { border: none; border-top: 1px solid #999999; margin: 18px 0 14px 0; }
-    .pauta-header { color: #0B4A9B; font-size: 15px; font-weight: 700; margin: 0 0 14px 0; }
-    h2 { font-size: 15px; font-weight: 700; margin: 18px 0 8px 0; text-transform: uppercase; }
-    h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px 0; }
+    @page { size: A4; margin: 16mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000000; margin: 0 auto; max-width: 820px; padding: 32px 40px; line-height: 1.5; background: #ffffff; }
+    .ata-title { color: #004AAD; font-size: 36px; font-weight: 800; letter-spacing: 0.5px; margin: 0 0 8px 0; border-bottom: 2px solid #047176; padding-bottom: 10px; text-transform: uppercase; }
+    .ata-client { font-size: 15px; font-weight: 700; margin: 12px 0 16px 0; color: #000000; }
+    table.meta-table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; border: 1px solid #00D0DD; }
+    table.meta-table th { background: #004AAD; color: #ffffff; padding: 10px 8px; text-align: center; font-weight: 700; text-transform: uppercase; border: 1px solid #00D0DD; border-bottom: 1px solid #047176; }
+    table.meta-table td { background: #D4F8F8; color: #000000; padding: 12px 8px; text-align: center; vertical-align: top; border: 1px solid #00D0DD; }
+    table.resumo-table { width: 100%; border-collapse: collapse; margin: 14px 0 18px 0; font-size: 13px; border: 1px solid #000000; }
+    table.resumo-table th:first-child, td.resumo-aspecto { width: 24%; background: #004AAD; color: #ffffff; font-weight: 700; padding: 8px 10px; border: 1px solid #000000; text-align: left; vertical-align: top; }
+    table.resumo-table th:last-child, td.resumo-detalhes { width: 76%; background: #D4F8F8; color: #000000; padding: 8px 10px; border: 1px solid #000000; text-align: left; vertical-align: top; }
+    .section-divider { border: none; border-top: 1.5px solid #A0A0A0; margin: 18px 0 14px 0; }
+    .pauta-header { color: #004AAD; font-size: 15px; font-weight: 700; margin: 0 0 14px 0; }
+    h2 { color: #047176; font-size: 14px; font-weight: 700; margin: 18px 0 8px 0; text-transform: uppercase; }
+    h3 { color: #047176; font-size: 13.5px; font-weight: 700; margin: 12px 0 6px 0; }
     ul.main-list { list-style-type: disc; padding-left: 24px; margin: 6px 0; }
     ul.sub-list { list-style-type: circle; padding-left: 24px; margin: 4px 0; }
     ol.encaminhamentos-list { padding-left: 22px; margin: 8px 0; }
     li { margin-bottom: 4px; }
-    .signature { margin-top: 32px; color: #0B4A9B; font-weight: 700; font-size: 15px; }
+    .signature { margin-top: 32px; color: #004AAD; font-weight: 700; font-size: 15px; }
     .signature div { margin-bottom: 6px; }
     @media print { .no-print { display: none; } body { padding: 0; } }
   </style>
@@ -1127,6 +1441,7 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
 
   <h2>2. PAUTA E PONTOS DISCUTIDOS</h2>
   ${pautaHtml}
+  ${tabelaResumoHtml}
 
   <h2>3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS</h2>
   ${encaminhamentosHtml}
@@ -1219,13 +1534,13 @@ export async function generateAtaAtIndex(index, options = {}) {
     }
 
     await new Promise((resolve) => {
-        chrome.storage.local.set({ meetings }, resolve)
+        chrome.storage.local.set({ meetings }, () => resolve())
     })
 
     const fileName = getAtaFileName(meeting, "docx")
     if (!options.skipDownload) {
         const accessInfo = buildTranscriptAccessInfo(meeting, index)
-        const docxBlob = buildAtaDocxBlob(ataData, accessInfo)
+        const docxBlob = await buildAtaDocxBlobFromTemplate(ataData, accessInfo, template.docxBytes)
         await downloadBlobOrDataUrl({
             blob: docxBlob,
             fileName,
@@ -1270,7 +1585,8 @@ export async function downloadAtaAtIndex(index, format = "docx") {
         })
     }
 
-    const blob = buildAtaDocxBlob(meeting.ataData, accessInfo)
+    const template = await loadAtaTemplate()
+    const blob = await buildAtaDocxBlobFromTemplate(meeting.ataData, accessInfo, template.docxBytes)
     const fileName = getAtaFileName(meeting, "docx")
     return downloadBlobOrDataUrl({
         blob,
