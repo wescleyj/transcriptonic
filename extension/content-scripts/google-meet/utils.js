@@ -35,11 +35,11 @@ function showNotificationGoogleMeet(extensionStatusJSON) {
     }, 5000)
 
     if (extensionStatusJSON.status === 200) {
-        obj.style.cssText = `color: #2A9ACA; top: 5%; ${commonCSS}`
+        obj.style.cssText = `color: #ffffff; top: 5%; ${commonCSS}`
         text.innerHTML = extensionStatusJSON.message
     }
     else {
-        obj.style.cssText = `color: orange; top: 5%; ${commonCSS}`
+        obj.style.cssText = `color: #f69191; top: 5%; ${commonCSS} border-color: #f69191;`
         text.innerHTML = extensionStatusJSON.message
     }
 
@@ -57,8 +57,8 @@ function updateMeetingTitleGoogleMeet(state) {
     waitForElement(SELECTORS_GOOGLE_MEET.MEETING_TITLE).then((element) => {
         const meetingTitleElement = /** @type {HTMLDivElement} */ (element)
         meetingTitleElement?.setAttribute("contenteditable", "true")
-        meetingTitleElement.title = "Edit meeting title for TranscripTonic"
-        meetingTitleElement.style.cssText = `text-decoration: underline white; text-underline-offset: 4px;`
+        meetingTitleElement.title = "Editar título da reunião para CommitJr Atas"
+        meetingTitleElement.style.cssText = `text-decoration: underline #fac835; text-underline-offset: 4px;`
 
         meetingTitleElement?.addEventListener("input", handleMeetingTitleElementChange)
 
@@ -66,7 +66,7 @@ function updateMeetingTitleGoogleMeet(state) {
         setTimeout(() => {
             handleMeetingTitleElementChange()
             if (location.pathname === `/${meetingTitleElement.innerText}`) {
-                showNotificationGoogleMeet({ status: 200, message: "<b>Give this meeting a title?</b><br/>Edit the underlined text in the bottom left corner" })
+                showNotificationGoogleMeet({ status: 200, message: `<strong style="color: #fac835;">Deseja nomear esta reunião?</strong><br/>Edite o texto sublinhado no canto inferior esquerdo` })
             }
         }, 7000)
 

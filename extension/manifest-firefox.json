@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "TranscripTonic",
+  "name": "CommitJr Atas",
   "version": "3.4.5",
-  "description": "Simple Google Meet transcripts. Private and open source.",
+  "description": "Transcrições automáticas no Google Meet e geração de Atas de Reunião com IA | Commit Jr.",
   "action": {
     "default_icon": "icon.png",
     "default_popup": "popup/index.html"
   },
   "sidebar_action": {
     "default_panel": "side-panel/index.html",
-    "default_title": "TranscripTonic",
+    "default_title": "CommitJr Atas",
     "default_icon": "icon.png"
   },
   "icons": {
@@ -39,6 +39,7 @@
     {
       "resources": [
         "icon.png",
+        "icons/pull-mascot.svg",
         "meetings.html",
         "templates/*"
       ],

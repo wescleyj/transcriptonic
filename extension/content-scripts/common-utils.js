@@ -30,7 +30,7 @@ function createContentScriptState(meetingSoftware, platform) {
         hasMeetingEnded: false,
         extensionStatusJSON: {
             status: 200,
-            message: "<strong>TranscripTonic is running</strong> <br /> Do not turn off captions"
+            message: `<strong style="color: #fac835;">CommitJr Atas ativo</strong> <br /> Não desative as legendas do Google Meet`
         }
     }
 }
@@ -306,11 +306,11 @@ function pulseStatus() {
         let html = document.querySelector("html")
         activityStatus = document.createElement("div")
         activityStatus.setAttribute("id", "transcriptonic-status")
-        activityStatus.style.cssText = `background-color: #2A9ACA; ${statusActivityCSS}`
+        activityStatus.style.cssText = `background-color: #fac835; ${statusActivityCSS}`
         html?.appendChild(activityStatus)
     }
     else {
-        activityStatus.style.cssText = `background-color: #2A9ACA; ${statusActivityCSS}`
+        activityStatus.style.cssText = `background-color: #fac835; ${statusActivityCSS}`
     }
 
     setTimeout(() => {
@@ -331,8 +331,8 @@ function renderFab() {
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: #071f29;
-        box-shadow: 0px 0px 4px 0px #2A9ACA;
+        background-color: #0c152d;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 0 2px #fac835;
         cursor: pointer;
         border: none;
         padding: 0;
@@ -342,16 +342,16 @@ function renderFab() {
     const html = document.querySelector("html")
     const fab = document.createElement("button")
     fab.id = "transcriptonic-fab"
-    fab.ariaLabel = "TranscripTonic"
-    fab.title = "TranscripTonic"
+    fab.ariaLabel = "CommitJr Atas"
+    fab.title = "CommitJr Atas - Transcrição ao Vivo"
     fab.style.cssText = fabCss
 
     const logoUrl = LOGO_URL
 
     fab.innerHTML = `
         <div id="fab-main-content" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">
-            <img id="fab-default-logo" src="${logoUrl}" alt="TranscripTonic" draggable="false" style="width: 20px; height: 20px; object-fit: contain;" />
-            <span id="fab-letter-mark" style="display: none; color: #ffffff; font-weight: bold; font-size: 16px; text-transform: uppercase; font-family: sans-serif;"></span>
+            <img id="fab-default-logo" src="${logoUrl}" alt="CommitJr Atas" draggable="false" style="width: 24px; height: 24px; border-radius: 6px; object-fit: contain;" />
+            <span id="fab-letter-mark" style="display: none; color: #fac835; font-weight: 700; font-size: 16px; text-transform: uppercase; font-family: 'Poppins', sans-serif;"></span>
         </div>
 
         <img id="fab-mini-badge" src="${logoUrl}" alt="Active Badge" draggable="false" style="
@@ -362,8 +362,8 @@ function renderFab() {
             width: 14px;
             height: 14px;
             border-radius: 50%;
-            background-color: #071f29;
-            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+            background-color: #0c152d;
+            box-shadow: 0 0 2px rgba(0,0,0,0.65);
             object-fit: contain;
             pointer-events: none;
         " />
@@ -512,7 +512,7 @@ function logTranscriptToConsole(state) {
    * @param {any} err
    */
 function logError(state, code, err) {
-    console.error(`[TranscripTonic] Error ${code} (${state?.meetingSoftware || "unknown"}):`, err)
+    console.error(`[CommitJr Atas] Error ${code} (${state?.meetingSoftware || "unknown"}):`, err)
 }
 
 /**

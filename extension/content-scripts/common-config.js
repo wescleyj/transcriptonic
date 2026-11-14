@@ -1,9 +1,9 @@
 /** @type {ExtensionStatusJSON} */
 const extensionStatusJSON_bug = {
     "status": 400,
-    "message": `<strong>TranscripTonic encountered a new error</strong> <br /> Please report it <a href="https://github.com/wescleyj/transcriptonic/issues" target="_blank">here</a>.`
+    "message": `<strong style="color: #f69191;">CommitJr Atas encontrou um erro inesperado</strong> <br /> Por favor, reporte em <a href="https://github.com/wescleyj/transcriptonic/issues" target="_blank" style="color: #fac835; text-decoration: underline;">GitHub Issues</a>.`
 }
-const reportErrorMessage = "There is a bug in TranscripTonic. Please report it at https://github.com/wescleyj/transcriptonic/issues"
+const reportErrorMessage = "Ocorreu um erro no CommitJr Atas. Reporte em https://github.com/wescleyj/transcriptonic/issues"
 
 
 /** @type {MutationObserverInit} */
@@ -12,8 +12,7 @@ const mutationConfig = { childList: true, attributes: true, subtree: true, chara
 const LOGO_URL = (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.getURL === "function")
     ? chrome.runtime.getURL("icon.png")
     : ""
-const commonCSS = `background: rgb(255 255 255 / 100%); 
-    backdrop-filter: blur(16px); 
+const commonCSS = `background: rgba(12, 21, 45, 0.96); 
     position: fixed;
     left: 0; 
     right: 0; 
@@ -21,19 +20,20 @@ const commonCSS = `background: rgb(255 255 255 / 100%);
     margin-right: auto;
     max-width: 780px;  
     z-index: 1000; 
-    padding: 0rem 1rem;
-    border-radius: 8px; 
+    padding: 0.25rem 1.15rem;
+    border-radius: 10px; 
+    border: 1.5px solid #fac835;
     display: flex; 
     justify-content: center; 
     align-items: center; 
-    gap: 16px;  
-    font-size: 1rem; 
-    line-height: 1.5; 
-    font-family: "Google Sans",Roboto,Arial,sans-serif; 
-    box-shadow: rgba(0, 0, 0, 0.16) 0px 10px 36px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px;`
+    gap: 14px;  
+    font-size: 0.95rem; 
+    line-height: 1.45; 
+    font-family: "Poppins", Roboto, Arial, sans-serif; 
+    box-shadow: rgba(0, 0, 0, 0.45) 0px 12px 32px 0px;`
 
 const NOTIFICATION_PLATFORM_CONFIGS = {
     "google_meet": {
-        notificationText: "<strong>TranscripTonic ativo</strong> <br /> Não desative as legendas do Google Meet"
+        notificationText: `<strong style="color: #fac835;">CommitJr Atas ativo</strong> <br /> Não desative as legendas do Google Meet`
     }
 }

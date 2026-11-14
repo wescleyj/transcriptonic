@@ -103,6 +103,7 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(fs.existsSync(path.join(DIST_DIR, "firefox", "manifest-firefox.json")), false)
 
         const sourceManifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, "manifest.json"), "utf8"))
+        assert.equal(sourceManifest.name, "CommitJr Atas")
         assert.equal(sourceManifest.side_panel, undefined)
         assert.equal(sourceManifest.permissions.includes("sidePanel"), false)
         assert.ok(sourceManifest.permissions.includes("unlimitedStorage"))
@@ -110,6 +111,7 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(sourceManifest.background.service_worker, undefined)
 
         const chromeManifest = JSON.parse(fs.readFileSync(chromeManifestPath, "utf8"))
+        assert.equal(chromeManifest.name, "CommitJr Atas")
         assert.equal(chromeManifest.manifest_version, 3)
         assert.equal(chromeManifest.background.service_worker, "background-script/index.js")
         assert.equal(chromeManifest.background.scripts, undefined)
@@ -121,12 +123,15 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(chromeManifest.optional_host_permissions, undefined)
         assert.equal(chromeManifest.declarative_net_request, undefined)
         assert.ok(chromeManifest.web_accessible_resources?.[0]?.resources?.includes("templates/*"))
+        assert.ok(chromeManifest.web_accessible_resources?.[0]?.resources?.includes("icons/pull-mascot.svg"))
 
         const firefoxManifest = JSON.parse(fs.readFileSync(firefoxManifestPath, "utf8"))
+        assert.equal(firefoxManifest.name, "CommitJr Atas")
         assert.equal(firefoxManifest.manifest_version, 3)
         assert.deepEqual(firefoxManifest.background.scripts, ["background-script/index.js"])
         assert.equal(firefoxManifest.background.service_worker, undefined)
         assert.equal(firefoxManifest.sidebar_action?.default_panel, "side-panel/index.html")
+        assert.equal(firefoxManifest.sidebar_action?.default_title, "CommitJr Atas")
         assert.ok(firefoxManifest.browser_specific_settings?.gecko?.id)
         assert.equal(firefoxManifest.permissions.includes("sidePanel"), false)
         assert.ok(firefoxManifest.permissions.includes("unlimitedStorage"))
@@ -145,6 +150,7 @@ describe("Cross-browser packaging & manifests", () => {
             "background-script/ata-generator.js",
             "meetings.html",
             "meetings.js",
+            "icons/pull-mascot.svg",
             "templates/modelo-ata.pdf",
             "templates/modelo-ata.docx"
         ]) {
@@ -946,5 +952,43 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         )
         assert.ok(noClientHtml.includes("Assunto - Planejamento da Sprint"))
         assert.equal(noClientHtml.includes("Cliente -"), false)
+    })
+
+    it("applies Commit Jr. brand identity, mascot assets, palette, and preserves UI DOM hooks", () => {
+        const pullSvg = fs.readFileSync(path.join(EXTENSION_DIR, "icons/pull-mascot.svg"), "utf8")
+        assert.ok(pullSvg.includes("#ffffff"))
+        assert.ok(pullSvg.includes("#fac835"))
+
+        const downloadSvg = fs.readFileSync(path.join(EXTENSION_DIR, "icons/download.svg"), "utf8")
+        const deleteSvg = fs.readFileSync(path.join(EXTENSION_DIR, "icons/delete.svg"), "utf8")
+        assert.ok(downloadSvg.includes("#fac835"))
+        assert.ok(deleteSvg.includes("#f69191"))
+
+        const popupHtml = fs.readFileSync(path.join(EXTENSION_DIR, "popup/index.html"), "utf8")
+        const meetingsHtml = fs.readFileSync(path.join(EXTENSION_DIR, "meetings.html"), "utf8")
+        const sidePanelHtml = fs.readFileSync(path.join(EXTENSION_DIR, "side-panel/index.html"), "utf8")
+
+        for (const [name, html] of [
+            ["popup/index.html", popupHtml],
+            ["meetings.html", meetingsHtml],
+            ["side-panel/index.html", sidePanelHtml]
+        ]) {
+            for (const token of ["#0c152d", "#fac835", "#95eed8", `Commit<span class="jr">Jr</span>`, "pull-mascot.svg"]) {
+                assert.ok(html.includes(token), `${name} missing Commit Jr. token ${token}`)
+            }
+        }
+
+        assert.ok(popupHtml.includes("#f69191"))
+        assert.ok(meetingsHtml.includes("#f69191"))
+
+        for (const hook of ['id="hide-captions"', 'id="gemini-api-key"', 'id="gemini-model"', 'id="auto-generate-ata"', 'id="generate-last-ata-btn"']) {
+            assert.ok(popupHtml.includes(hook), `popup/index.html missing ${hook}`)
+        }
+        for (const hook of ['id="meetings-search"', 'id="recover-last-meeting"', 'id="meetings-table"', 'id="gemini-api-key"', 'id="ata-template-file"']) {
+            assert.ok(meetingsHtml.includes(hook), `meetings.html missing ${hook}`)
+        }
+        for (const hook of ['id="meeting-title"', 'id="transcript-container"']) {
+            assert.ok(sidePanelHtml.includes(hook), `side-panel/index.html missing ${hook}`)
+        }
     })
 })
