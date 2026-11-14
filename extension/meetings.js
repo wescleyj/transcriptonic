@@ -8,6 +8,7 @@ import {
     escapeHtml,
     buildAtaHtml,
     buildTranscriptAccessInfo,
+    consolidateTranscriptBlocks,
     formatDateTimeBr,
     extractTextFromDocxBytes
 } from "./background-script/ata-generator.js"
@@ -16,6 +17,7 @@ import { getTranscriptFileName } from "./background-script/utils.js"
 const MAX_TEMPLATE_FILE_BYTES = 3 * 1024 * 1024
 
 let isMeetingsTableExpanded = false
+let currentMeetingsFilter = ""
 /** @type {number | null} */
 let activeTranscriptModalIndex = null
 /** @type {number | null} */
@@ -127,8 +129,12 @@ export function buildMeetingRowHtml(meeting, index) {
     }
 
     const hasAta = Boolean(meeting.ataData)
+    const ataMetaParts = [
+        meeting.ataData?.assuntoResumido ? escapeHtml(meeting.ataData.assuntoResumido) : "",
+        meeting.ataModel ? escapeHtml(meeting.ataModel) : ""
+    ].filter(Boolean)
     const ataStatusHtml = hasAta
-        ? `<span class="status-success">Ata gerada</span>${meeting.ataModel ? `<div class="sub-text" style="font-size: 0.78rem;">${escapeHtml(meeting.ataModel)}</div>` : ""}`
+        ? `<span class="status-success">Ata gerada</span>${ataMetaParts.length ? `<div class="sub-text" style="font-size: 0.78rem;">${ataMetaParts.join(" · ")}</div>` : ""}`
         : `<span class="sub-text">Não gerada</span>`
 
     const ataActionsHtml = `
@@ -221,6 +227,14 @@ if (typeof document !== "undefined") {
         const advancedWebhookBodyRadio = document.querySelector("#advanced-webhook-body")
         const recoverLastMeetingButton = document.querySelector("#recover-last-meeting")
         const showAllButton = document.querySelector("#show-all")
+        const meetingsSearchInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#meetings-search"))
+
+        if (meetingsSearchInput) {
+            meetingsSearchInput.addEventListener("input", () => {
+                currentMeetingsFilter = meetingsSearchInput.value.trim().toLowerCase()
+                loadMeetings()
+            })
+        }
 
         // Initial load of transcripts and Ata/Gemini settings
         loadMeetings()
@@ -621,10 +635,42 @@ function initModals() {
     const transcriptModal = /** @type {HTMLDialogElement | null} */ (document.querySelector("#transcript-modal"))
     const transcriptCloseBtn = document.querySelector("#transcript-modal-close")
     const transcriptDownloadBtn = document.querySelector("#transcript-modal-download")
+    const transcriptCopyBtn = /** @type {HTMLButtonElement | null} */ (document.querySelector("#transcript-modal-copy"))
 
     if (transcriptCloseBtn && transcriptModal) {
         transcriptCloseBtn.addEventListener("click", () => {
             transcriptModal.close()
+        })
+    }
+
+    if (transcriptCopyBtn) {
+        transcriptCopyBtn.addEventListener("click", () => {
+            if (activeTranscriptModalIndex === null) return
+            const targetIdx = activeTranscriptModalIndex
+            chrome.storage.local.get(["meetings"], function (resultLocalUntyped) {
+                const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped || {})
+                const meeting = (resultLocal.meetings || [])[targetIdx]
+                if (!meeting) return
+                const consolidated = consolidateTranscriptBlocks(meeting.transcript || [])
+                const lines = consolidated.map(entry => `[${entry.time}] ${entry.speaker}: ${entry.text}`)
+                const chatLines = (meeting.chatMessages || [])
+                    .map(msg => `[${formatDateTimeBr(msg.timestamp)}] ${msg.personName || "Participante"} (Chat): ${msg.chatMessageText || ""}`)
+                    .filter(Boolean)
+                const fullText = [...lines, ...(chatLines.length ? ["", "--- CHAT ---", ...chatLines] : [])].join("\n")
+                if (!fullText.trim()) {
+                    alert("Não há texto de transcrição para copiar.")
+                    return
+                }
+                navigator.clipboard.writeText(fullText).then(() => {
+                    const originalText = transcriptCopyBtn.textContent || "Copiar texto"
+                    transcriptCopyBtn.textContent = "Copiado ✓"
+                    setTimeout(() => {
+                        transcriptCopyBtn.textContent = originalText
+                    }, 2000)
+                }).catch(() => {
+                    alert("Não foi possível copiar para a área de transferência.")
+                })
+            })
         })
     }
 
@@ -841,8 +887,28 @@ function loadMeetings() {
 
         if (resultLocal.meetings && resultLocal.meetings.length > 0) {
             const meetings = resultLocal.meetings
+            let renderedCount = 0
             for (let i = meetings.length - 1; i >= 0; i--) {
                 const meeting = meetings[i]
+                if (currentMeetingsFilter) {
+                    const participantsText = [
+                        ...(meeting.ataData?.participantes || []),
+                        ...(meeting.transcript || []).map(b => b.personName)
+                    ].join(" ")
+                    const haystack = [
+                        meeting.meetingTitle || meeting.title || "",
+                        meeting.meetingSoftware || "",
+                        meeting.ataData?.cliente || "",
+                        meeting.ataData?.assuntoResumido || "",
+                        meeting.ataData?.objetivo || "",
+                        formatDateTimeBr(meeting.meetingStartTimestamp),
+                        participantsText
+                    ].join(" ").toLowerCase()
+                    if (!haystack.includes(currentMeetingsFilter)) {
+                        continue
+                    }
+                }
+                renderedCount++
                 const row = document.createElement("tr")
                 row.innerHTML = buildMeetingRowHtml(meeting, i)
                 meetingsTable.appendChild(row)
@@ -1008,9 +1074,16 @@ function loadMeetings() {
             }
 
             const meetingsTableContainer = document.querySelector("#meetings-table-container")
-            if (!isMeetingsTableExpanded && meetingsTableContainer && meetingsTableContainer.clientHeight > 280) {
+            if (renderedCount === 0) {
+                meetingsTable.innerHTML = `<tr><td colspan="6">Nenhuma reunião encontrada para o filtro informado.</td></tr>`
+                meetingsTableContainer?.classList.remove("fade-mask")
+                document.querySelector("#show-all")?.setAttribute("style", "display: none")
+            } else if (!isMeetingsTableExpanded && !currentMeetingsFilter && meetingsTableContainer && meetingsTableContainer.clientHeight > 280) {
                 meetingsTableContainer.classList.add("fade-mask")
                 document.querySelector("#show-all")?.setAttribute("style", "display: block")
+            } else {
+                meetingsTableContainer?.classList.remove("fade-mask")
+                document.querySelector("#show-all")?.setAttribute("style", "display: none")
             }
         } else {
             meetingsTable.innerHTML = `<tr><td colspan="6">Your next meeting will show up here</td></tr>`

@@ -345,6 +345,53 @@ export function formatDateTimeBr(isoTimestamp) {
 }
 
 /**
+ * Checks whether a captured meeting title or client placeholder lacks meaningful topic info.
+ * @param {string | undefined | null} title
+ * @returns {boolean}
+ */
+export function isGenericMeetingTitle(title) {
+    const clean = String(title || "").trim()
+    if (!clean) return true
+    if (/\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b/i.test(clean)) return true
+    return /^(google\s*meet(\s*call)?|meet|zoom(\s*meeting)?|teams|microsoft\s*teams|reuni[aã]o|nome\s*da\s*empresa|sem\s*t[ií]tulo|chamada|videochamada|call|---+|n\/?a|nenhum|sem\s*cliente|n[aã]o\s*identificado|n[aã]o\s*informado)$/i.test(clean)
+}
+
+/**
+ * Formats an ISO timestamp into DD-MM-YYYY for use in filenames.
+ * @param {string | undefined} isoTimestamp
+ * @returns {string}
+ */
+function formatDateOnlyFileBr(isoTimestamp) {
+    const date = new Date(isoTimestamp || Date.now())
+    if (Number.isNaN(date.getTime())) {
+        return ""
+    }
+    const day = String(date.getDate()).padStart(2, "0")
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const year = date.getFullYear()
+    return `${day}-${month}-${year}`
+}
+
+/**
+ * Sanitizes a descriptive text segment for safe cross-OS filenames.
+ * @param {string | undefined | null} text
+ * @param {number} [maxLen]
+ * @returns {string}
+ */
+function sanitizeFileSegment(text, maxLen = 65) {
+    let clean = String(text ?? "")
+        .replace(/[\u0000-\u001F\u007F]/g, " ")
+        .replace(/[:?"*<>|~/\\]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^[.\-\s]+|[.\-\s]+$/g, "")
+    if (clean.length > maxLen) {
+        clean = clean.slice(0, maxLen).replace(/\s+\S*$/, "").trim() || clean.slice(0, maxLen).trim()
+    }
+    return clean
+}
+
+/**
  * Formats transcript and chat counts with proper Portuguese singular/plural wording.
  * @param {number} transcriptCount
  * @param {number} chatCount
@@ -566,7 +613,16 @@ export function normalizeAtaData(raw, meeting, options = {}) {
     const fallbackLocal = meeting?.meetingSoftware === "Google Meet"
         ? "Meet"
         : (meeting?.meetingSoftware || "Meet")
-    const fallbackTitle = meeting?.meetingTitle || meeting?.title || "Nome da Empresa"
+    const rawMeetingTitle = String(meeting?.meetingTitle || meeting?.title || "").trim()
+    const cleanFallbackTitle = isGenericMeetingTitle(rawMeetingTitle) ? "" : rawMeetingTitle
+
+    const rawCliente = String(raw?.cliente ?? "").trim()
+    const optionCliente = String(options.clientName ?? "").trim()
+    const cliente = (!isGenericMeetingTitle(rawCliente) ? rawCliente : "")
+        || (!isGenericMeetingTitle(optionCliente) ? optionCliente : "")
+        || cleanFallbackTitle
+
+    const objetivo = String(raw?.objetivo || "Registro dos pontos discutidos e encaminhamentos da reunião.").trim()
 
     const participantes = Array.isArray(raw?.participantes) && raw.participantes.length > 0
         ? raw.participantes.map((/** @type {any} */ p) => String(p).trim()).filter(Boolean)
@@ -625,14 +681,30 @@ export function normalizeAtaData(raw, meeting, options = {}) {
             .filter((/** @type {{ titulo: string, conteudo: string[] }} */ sec) => sec.titulo && sec.conteudo.length > 0)
         : []
 
+    const rawAssunto = String(raw?.assuntoResumido || "").trim()
+    let assuntoResumido = (rawAssunto && !isGenericMeetingTitle(rawAssunto)) ? rawAssunto : ""
+    if (!assuntoResumido) {
+        const rawObj = String(raw?.objetivo || "").trim()
+        if (rawObj && !/^Registro dos pontos discutidos/i.test(rawObj)) {
+            assuntoResumido = rawObj.split(/[.;!?\n]/)[0].trim().split(/\s+/).slice(0, 7).join(" ")
+        } else if (pauta[0]?.titulo && pauta[0].titulo !== "Pontos Principais") {
+            assuntoResumido = pauta[0].titulo.split(/\s+/).slice(0, 7).join(" ")
+        } else if (cleanFallbackTitle) {
+            assuntoResumido = cleanFallbackTitle
+        } else {
+            assuntoResumido = "Alinhamento Geral"
+        }
+    }
+
     return {
-        cliente: String(raw?.cliente || options.clientName || fallbackTitle).trim(),
+        cliente,
+        assuntoResumido,
         local: String(raw?.local || fallbackLocal).trim(),
         dataHorario: String(raw?.dataHorario || formatDateTimeBr(meeting?.meetingStartTimestamp)).trim(),
         participantes,
         ausentes: String(raw?.ausentes || "-----").trim() || "-----",
         subdiretoria: String(raw?.subdiretoria ?? options.subdiretoria ?? "").trim(),
-        objetivo: String(raw?.objetivo || "Registro dos pontos discutidos e encaminhamentos da reunião.").trim(),
+        objetivo,
         pauta,
         encaminhamentos,
         tabelaResumo,
@@ -786,7 +858,7 @@ DADOS DA REUNIÃO:
 - Título capturado: ${meeting?.meetingTitle || meeting?.title || "Reunião"}
 - Plataforma / Local sugerido: ${defaultLocal}
 - Data e horário sugerido: ${defaultDateTime}
-- Cliente padrão informado: ${clientName || "(extrair do título ou contexto, senão usar o título da reunião)"}
+- Cliente padrão informado: ${clientName || '(extrair do título ou contexto apenas se houver cliente/empresa/projeto real; caso contrário deixar "")'}
 - Subdiretoria padrão informada: ${subdiretoria || "(extrair se mencionado na reunião, senão deixar vazio)"}
 - Participantes detectados: ${detectedParticipants.join(", ") || "Não identificados"}
 
@@ -801,7 +873,8 @@ ${chatText || "(Sem mensagens no chat)"}
 REGRAS DE PREENCHIMENTO:
 1. Retorne EXCLUSIVAMENTE um JSON válido seguindo exatamente este schema:
 {
-  "cliente": "Nome do Cliente ou Projeto",
+  "cliente": "Nome do Cliente, Empresa ou Projeto (deixar \"\" se não houver; NUNCA usar códigos de sala como xxx-xxxx-xxx)",
+  "assuntoResumido": "Resumo curto (3 a 7 palavras) do objetivo/tema central tratado na reunião",
   "local": "Meet | Teams | Zoom | outro",
   "dataHorario": "DD/MM/YYYY; HH:MM",
   "participantes": ["Nome 1", "Nome 2"],
@@ -1306,7 +1379,7 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
       <w:pPr><w:spacing w:before="120" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
         <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="000000"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
-        <w:t xml:space="preserve">Cliente - ${escapeXml(ataData.cliente)}</w:t>
+        <w:t xml:space="preserve">${escapeXml(ataData.cliente ? `Cliente - ${ataData.cliente}` : `Assunto - ${ataData.assuntoResumido || "Reunião"}`)}</w:t>
       </w:r>
     </w:p>
 
@@ -1697,7 +1770,7 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>ATA DE REUNIÃO - ${escapeHtml(ataData.cliente)}</title>
+  <title>ATA DE REUNIÃO - ${escapeHtml(ataData.cliente || ataData.assuntoResumido || "Reunião")}</title>
   <style>
     @page { size: A4; margin: 16mm; }
     body { font-family: Arial, Helvetica, sans-serif; color: #000000; margin: 0 auto; max-width: 820px; padding: 32px 40px; line-height: 1.5; background: #ffffff; }
@@ -1730,7 +1803,7 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
 <body>
   <div id="topo-ata"></div>
   <h1 class="ata-title">ATA DE REUNIÃO</h1>
-  <div class="ata-client">Cliente - ${escapeHtml(ataData.cliente)}</div>
+  <div class="ata-client">${escapeHtml(ataData.cliente ? `Cliente - ${ataData.cliente}` : `Assunto - ${ataData.assuntoResumido || "Reunião"}`)}</div>
 
   <table class="meta-table">
     <thead>
@@ -1786,15 +1859,31 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
 }
 
 /**
- * Builds the output filename for an Ata de Reunião document.
+ * Builds the descriptive output filename for an Ata de Reunião document using Date, Client (if any), and Objective.
  * @param {Meeting} meeting
  * @param {"docx" | "html"} [format]
+ * @param {AtaData | null} [ataDataOverride]
  * @returns {string}
  */
-export function getAtaFileName(meeting, format = "docx") {
-    const sanitisedTitle = getSanitisedMeetingTitle(meeting)
-    const formattedTimestamp = getFormattedFileTimestamp(meeting)
-    return `TranscripTonic/ATA-${sanitisedTitle} at ${formattedTimestamp}.${format}`
+export function getAtaFileName(meeting, format = "docx", ataDataOverride = null) {
+    const ata = ataDataOverride || meeting?.ataData
+    const datePart = formatDateOnlyFileBr(meeting?.meetingStartTimestamp) || "Sem-Data"
+
+    const rawClient = ata?.cliente && !isGenericMeetingTitle(ata.cliente) ? ata.cliente : ""
+    const clientPart = rawClient ? sanitizeFileSegment(rawClient, 45) : ""
+
+    const rawMeetingTitle = String(meeting?.meetingTitle || meeting?.title || "").trim()
+    const cleanMeetingTitle = !isGenericMeetingTitle(rawMeetingTitle) ? rawMeetingTitle : ""
+    const rawObjective = ata?.assuntoResumido || ata?.objetivo || cleanMeetingTitle || "Reuniao"
+    const objectivePart = sanitizeFileSegment(rawObjective, 60) || "Reuniao"
+
+    const segments = [datePart]
+    if (clientPart && clientPart.toLowerCase() !== objectivePart.toLowerCase()) {
+        segments.push(clientPart)
+    }
+    segments.push(objectivePart)
+
+    return `TranscripTonic/ATA - ${segments.join(" - ")}.${format}`
 }
 
 /**
@@ -1872,8 +1961,14 @@ export async function generateAtaAtIndex(index, options = {}) {
         subdiretoria
     })
 
+    const currentTitle = meeting?.meetingTitle || meeting?.title || ""
+    const enrichedTitle = isGenericMeetingTitle(currentTitle)
+        ? (ataData.cliente ? `${ataData.cliente} — ${ataData.assuntoResumido}` : (ataData.assuntoResumido || currentTitle))
+        : currentTitle
+
     meetings[index] = {
         ...meeting,
+        meetingTitle: enrichedTitle,
         ataData,
         ataGeneratedAt: new Date().toISOString(),
         ataModel: model
@@ -1883,7 +1978,7 @@ export async function generateAtaAtIndex(index, options = {}) {
         chrome.storage.local.set({ meetings }, () => resolve())
     })
 
-    const fileName = getAtaFileName(meeting, "docx")
+    const fileName = getAtaFileName(meetings[index], "docx", ataData)
     if (!options.skipDownload) {
         const accessInfo = buildTranscriptAccessInfo(meeting, index)
         const docxBlob = await buildAtaDocxBlobFromTemplate(ataData, accessInfo, template.docxBytes)

@@ -17,6 +17,8 @@ import {
     consolidateTranscriptBlocks,
     extractTextFromDocxBytes,
     formatTranscriptCountLabel,
+    getAtaFileName,
+    isGenericMeetingTitle,
     readZipEntries
 } from "../extension/background-script/ata-generator.js"
 import { downloadBlobOrDataUrl } from "../extension/background-script/exporters.js"
@@ -840,5 +842,88 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
             4
         )
         assert.equal(accessExternal.externalUrl, "https://notion.so/ata-transcricao-123")
+    })
+
+    it("detects generic Meet room codes and formats smart Ata filenames with date, client, and objective", async () => {
+        assert.equal(isGenericMeetingTitle("Meet - nqj-baak-sdh"), true)
+        assert.equal(isGenericMeetingTitle("nqj-baak-sdh"), true)
+        assert.equal(isGenericMeetingTitle("Google Meet call"), true)
+        assert.equal(isGenericMeetingTitle("Sofia Tecnologia"), false)
+
+        const fileWithClient = getAtaFileName(
+            {
+                meetingSoftware: "Google Meet",
+                meetingTitle: "Meet - nqj-baak-sdh",
+                meetingStartTimestamp: "2026-10-21T14:00:00.000Z",
+                meetingEndTimestamp: "2026-10-21T14:45:00.000Z",
+                transcript: [],
+                chatMessages: [],
+                webhookPostStatus: "new",
+                ataData: {
+                    cliente: "Sofia Tecnologia",
+                    assuntoResumido: "Alinhamento de Escopo e Cronograma",
+                    local: "Meet",
+                    dataHorario: "21/10/2026; 14:00",
+                    participantes: ["Sofia"],
+                    ausentes: "-----",
+                    subdiretoria: "Projetos",
+                    objetivo: "Definir entregas do projeto.",
+                    pauta: [],
+                    encaminhamentos: []
+                }
+            },
+            "docx"
+        )
+        assert.equal(
+            fileWithClient,
+            "TranscripTonic/ATA - 21-10-2026 - Sofia Tecnologia - Alinhamento de Escopo e Cronograma.docx"
+        )
+
+        const fileWithoutClient = getAtaFileName(
+            {
+                meetingSoftware: "Google Meet",
+                meetingTitle: "Meet - nqj-baak-sdh",
+                meetingStartTimestamp: "2026-10-21T14:00:00.000Z",
+                meetingEndTimestamp: "2026-10-21T14:45:00.000Z",
+                transcript: [],
+                chatMessages: [],
+                webhookPostStatus: "new",
+                ataData: {
+                    cliente: "",
+                    assuntoResumido: "Planejamento da Sprint",
+                    local: "Meet",
+                    dataHorario: "21/10/2026; 14:00",
+                    participantes: ["Wescley"],
+                    ausentes: "-----",
+                    subdiretoria: "",
+                    objetivo: "Definir tarefas da semana.",
+                    pauta: [],
+                    encaminhamentos: []
+                }
+            },
+            "docx"
+        )
+        assert.equal(
+            fileWithoutClient,
+            "TranscripTonic/ATA - 21-10-2026 - Planejamento da Sprint.docx"
+        )
+
+        const noClientHtml = buildAtaHtml(
+            {
+                cliente: "",
+                assuntoResumido: "Planejamento da Sprint",
+                local: "Meet",
+                dataHorario: "21/10/2026; 14:00",
+                participantes: ["Wescley"],
+                ausentes: "-----",
+                subdiretoria: "",
+                objetivo: "Definir tarefas da semana.",
+                pauta: [],
+                encaminhamentos: []
+            },
+            { transcriptCount: 0, chatCount: 0 }
+        )
+        assert.ok(noClientHtml.includes("Assunto - Planejamento da Sprint"))
+        assert.equal(noClientHtml.includes("Cliente -"), false)
     })
 })

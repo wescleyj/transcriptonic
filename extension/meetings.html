@@ -448,6 +448,7 @@
             <div class="modal-header">
                 <h2 id="transcript-modal-title" style="margin: 0;">Transcrição Completa</h2>
                 <div style="display: flex; gap: 0.5rem;">
+                    <button id="transcript-modal-copy" class="btn-outline">Copiar texto</button>
                     <button id="transcript-modal-download" class="btn-outline">Baixar .txt</button>
                     <button id="transcript-modal-close">Fechar</button>
                 </div>
@@ -471,9 +472,12 @@
         <h1>TranscripTonic</h1>
 
         <section id="last-10-meetings">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                 <h2>Histórico de Reuniões</h2>
-                <button id="recover-last-meeting">Recover last meeting</button>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <input type="search" id="meetings-search" placeholder="Filtrar por cliente, objetivo, data ou participante..." style="max-width: 340px; padding: 0.4rem 0.65rem;" />
+                    <button id="recover-last-meeting">Recover last meeting</button>
+                </div>
             </div>
             <div id="meetings-table-container">
                 <table>

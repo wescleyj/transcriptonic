@@ -117,6 +117,7 @@
 /**
  * @typedef {Object} AtaData
  * @property {string} cliente
+ * @property {string} [assuntoResumido]
  * @property {string} local
  * @property {string} dataHorario
  * @property {string[]} participantes
