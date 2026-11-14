@@ -97,6 +97,12 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(fs.existsSync(path.join(DIST_DIR, "chrome", "manifest-firefox.json")), false)
         assert.equal(fs.existsSync(path.join(DIST_DIR, "firefox", "manifest-firefox.json")), false)
 
+        const sourceManifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, "manifest.json"), "utf8"))
+        assert.equal(sourceManifest.side_panel, undefined)
+        assert.equal(sourceManifest.permissions.includes("sidePanel"), false)
+        assert.deepEqual(sourceManifest.background.scripts, ["background-script/index.js"])
+        assert.equal(sourceManifest.background.service_worker, undefined)
+
         const chromeManifest = JSON.parse(fs.readFileSync(chromeManifestPath, "utf8"))
         assert.equal(chromeManifest.manifest_version, 3)
         assert.equal(chromeManifest.background.service_worker, "background-script/index.js")

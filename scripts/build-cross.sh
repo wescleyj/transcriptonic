@@ -35,15 +35,21 @@ copy_assets() {
 copy_assets "${CHROME_DIR}"
 copy_assets "${FIREFOX_DIR}"
 
-# Generate clean Chrome/Edge/Opera MV3 manifest (strip Firefox-only keys)
+# Generate clean Chrome/Edge/Opera MV3 manifest (enable Chrome side_panel & strip Firefox-only keys)
 node -e '
 const fs = require("fs");
 const src = process.argv[1];
 const dst = process.argv[2];
 const manifest = JSON.parse(fs.readFileSync(src, "utf8"));
-if (manifest.background && manifest.background.scripts) {
-  delete manifest.background.scripts;
+manifest.side_panel = { default_path: "side-panel/index.html" };
+manifest.permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
+if (!manifest.permissions.includes("sidePanel")) {
+  manifest.permissions.push("sidePanel");
 }
+manifest.background = {
+  service_worker: "background-script/index.js",
+  type: "module"
+};
 delete manifest.sidebar_action;
 delete manifest.browser_specific_settings;
 fs.writeFileSync(dst, JSON.stringify(manifest, null, 2) + "\n", "utf8");
