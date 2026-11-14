@@ -115,19 +115,6 @@ export function buildMeetingRowHtml(meeting, index) {
     )
     const safeDuration = escapeHtml(getDuration(meeting.meetingStartTimestamp, meeting.meetingEndTimestamp))
 
-    let webhookStatusHtml = `<span class="status-new">Unknown</span>`
-    switch (meeting.webhookPostStatus) {
-        case "successful":
-            webhookStatusHtml = `<span class="status-success">Successful</span>`
-            break
-        case "failed":
-            webhookStatusHtml = `<span class="status-failed">Failed</span>`
-            break
-        case "new":
-            webhookStatusHtml = `<span class="status-new">New</span>`
-            break
-    }
-
     const hasAta = Boolean(meeting.ataData)
     const ataMetaParts = [
         meeting.ataData?.assuntoResumido ? escapeHtml(meeting.ataData.assuntoResumido) : "",
@@ -150,29 +137,22 @@ export function buildMeetingRowHtml(meeting, index) {
         </div>
     `
 
-    const postTitle = meeting.webhookPostStatus === "new" ? "Post webhook" : "Repost webhook"
-
     return `
         <td>
-            <div contenteditable="true" class="meeting-title" data-index="${safeIndex}" title="Rename">${safeTitle}</div>
+            <div contenteditable="true" class="meeting-title" data-index="${safeIndex}" title="Renomear">${safeTitle}</div>
         </td>
         <td>${safeSoftware}</td>
         <td>${safeTimestamp} &nbsp; &#9679; &nbsp; ${safeDuration}</td>
-        <td>${webhookStatusHtml}</td>
         <td>
             ${ataStatusHtml}
             ${ataActionsHtml}
         </td>
         <td>
-            <div style="display: flex; gap: 1rem; justify-content: end">
-                <button type="button" class="download-button" data-index="${safeIndex}" title="Download" aria-label="Download this meeting transcript">
+            <div style="display: flex; gap: 0.75rem; justify-content: end">
+                <button type="button" class="download-button" data-index="${safeIndex}" title="Baixar transcrição (.txt)" aria-label="Baixar transcrição desta reunião">
                     <img src="./icons/download.svg" alt="">
                 </button>
-                <button type="button" class="post-button" data-index="${safeIndex}" title="${postTitle}" aria-label="${postTitle}">
-                    <img src="./icons/webhook.svg" alt="">
-                </button>
-                &nbsp;
-                <button type="button" class="delete-button" data-index="${safeIndex}" title="Delete" aria-label="Delete this meeting">
+                <button type="button" class="delete-button" data-index="${safeIndex}" title="Excluir" aria-label="Excluir esta reunião">
                     <img src="./icons/delete.svg" alt="">
                 </button>
             </div>
@@ -218,13 +198,6 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 
 if (typeof document !== "undefined") {
     document.addEventListener("DOMContentLoaded", function () {
-        const webhookUrlForm = document.querySelector("#webhook-url-form")
-        const webhookUrlInput = document.querySelector("#webhook-url")
-        const saveButton = document.querySelector("#save-webhook")
-        const autoPostCheckbox = document.querySelector("#auto-post-webhook")
-        const autoDownloadCheckbox = document.querySelector("#auto-download-file")
-        const simpleWebhookBodyRadio = document.querySelector("#simple-webhook-body")
-        const advancedWebhookBodyRadio = document.querySelector("#advanced-webhook-body")
         const recoverLastMeetingButton = document.querySelector("#recover-last-meeting")
         const showAllButton = document.querySelector("#show-all")
         const meetingsSearchInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#meetings-search"))
@@ -275,136 +248,20 @@ if (typeof document !== "undefined") {
                     scrollTo({ top: 0, behavior: "smooth" })
                     if (response?.success) {
                         if (response.message === "No recovery needed") {
-                            alert("Nothing to recover—you're on top of the world!")
+                            alert("Nenhuma reunião pendente para recuperar.")
                         } else {
-                            alert("Last meeting recovered successfully!")
+                            alert("Última reunião recuperada com sucesso!")
                         }
                     } else {
                         const parsedError = /** @type {ErrorObject} */ (response?.message)
-                        if (parsedError?.errorCode === "013") {
-                            alert(parsedError.errorMessage)
-                        } else if (parsedError?.errorCode === "014") {
-                            alert("Nothing to recover—you're on top of the world!")
+                        if (parsedError?.errorCode === "013" || parsedError?.errorCode === "014") {
+                            alert("Nenhuma reunião pendente para recuperar.")
                         } else {
-                            alert("Could not recover last meeting!")
+                            alert("Não foi possível recuperar a última reunião.")
                             console.error(parsedError?.errorMessage)
                         }
                     }
                 })
-            })
-        }
-
-        if (
-            saveButton instanceof HTMLButtonElement &&
-            webhookUrlForm instanceof HTMLFormElement &&
-            webhookUrlInput instanceof HTMLInputElement &&
-            autoPostCheckbox instanceof HTMLInputElement &&
-            simpleWebhookBodyRadio instanceof HTMLInputElement &&
-            advancedWebhookBodyRadio instanceof HTMLInputElement
-        ) {
-            // Initially disable the save button
-            saveButton.disabled = true
-
-            // Load saved webhook URL, auto-post setting, and webhook body type
-            chrome.storage.sync.get(
-                ["webhookUrl", "autoPostWebhookAfterMeeting", "autoDownloadFileAfterMeeting", "webhookBodyType"],
-                function (resultSyncUntyped) {
-                    const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-
-                    if (resultSync.webhookUrl) {
-                        webhookUrlInput.value = resultSync.webhookUrl
-                        saveButton.disabled = !webhookUrlInput.checkValidity()
-                    }
-
-                    // Set checkbox state
-                    autoPostCheckbox.checked = Boolean(resultSync.autoPostWebhookAfterMeeting)
-                    if (autoDownloadCheckbox instanceof HTMLInputElement) {
-                        autoDownloadCheckbox.checked = resultSync.autoDownloadFileAfterMeeting !== false
-                    }
-                    updateAutoDownloadCheckBox()
-
-                    // Set radio button state
-                    if (resultSync.webhookBodyType === "advanced") {
-                        advancedWebhookBodyRadio.checked = true
-                    } else {
-                        simpleWebhookBodyRadio.checked = true
-                    }
-                }
-            )
-
-            // Handle URL input changes
-            webhookUrlInput.addEventListener("input", function () {
-                saveButton.disabled = !webhookUrlInput.checkValidity()
-            })
-
-            // Save webhook URL, auto-post setting, and webhook body type
-            webhookUrlForm.addEventListener("submit", function (e) {
-                e.preventDefault()
-                const webhookUrl = webhookUrlInput.value
-                if (webhookUrl === "") {
-                    chrome.storage.sync.set({
-                        webhookUrl: webhookUrl
-                    }, function () {
-                        alert("Webhook URL saved!")
-                    })
-                } else if (webhookUrl && webhookUrlInput.checkValidity()) {
-                    requestWebhookAndNotificationPermission(webhookUrl)
-                        .then(() => {
-                            chrome.storage.sync.set({
-                                webhookUrl: webhookUrl
-                            }, function () {
-                                alert("Webhook URL saved!")
-                            })
-                        })
-                        .catch((error) => {
-                            alert("Fine! No webhooks for you!")
-                            console.error("Webhook permission error:", error)
-                        })
-                }
-            })
-
-            // Auto save auto-post setting
-            autoPostCheckbox.addEventListener("change", function () {
-                chrome.storage.sync.set({
-                    autoPostWebhookAfterMeeting: autoPostCheckbox.checked
-                }, function () {
-                    updateAutoDownloadCheckBox()
-                })
-            })
-
-            if (autoDownloadCheckbox instanceof HTMLInputElement) {
-                autoDownloadCheckbox.addEventListener("change", function () {
-                    if (!autoDownloadCheckbox.checked) {
-                        if (!confirm("Text file serves as a harmless backup, you sure you don't need it?")) {
-                            autoDownloadCheckbox.checked = true
-                            return
-                        }
-                    }
-                    chrome.storage.sync.set({
-                        autoDownloadFileAfterMeeting: autoDownloadCheckbox.checked
-                    }, function () { })
-                })
-            }
-
-            function updateAutoDownloadCheckBox() {
-                if (autoDownloadCheckbox?.parentElement instanceof HTMLDivElement && autoPostCheckbox instanceof HTMLInputElement) {
-                    autoDownloadCheckbox.parentElement.style.display = autoPostCheckbox.checked ? "flex" : "none"
-                    if (!autoPostCheckbox.checked && autoDownloadCheckbox instanceof HTMLInputElement) {
-                        autoDownloadCheckbox.checked = true
-                        chrome.storage.sync.set({
-                            autoDownloadFileAfterMeeting: true
-                        }, function () { })
-                    }
-                }
-            }
-
-            // Auto save webhook body type
-            simpleWebhookBodyRadio.addEventListener("change", function () {
-                chrome.storage.sync.set({ webhookBodyType: "simple" }, function () { })
-            })
-
-            advancedWebhookBodyRadio.addEventListener("change", function () {
-                chrome.storage.sync.set({ webhookBodyType: advancedWebhookBodyRadio.checked ? "advanced" : "simple" }, function () { })
             })
         }
 
@@ -461,15 +318,13 @@ function initGeminiAndTemplateSettings() {
     const geminiFeedback = document.querySelector("#gemini-feedback")
     const geminiModelSelect = /** @type {HTMLSelectElement | null} */ (document.querySelector("#gemini-model"))
     const autoGenerateAtaCheckbox = /** @type {HTMLInputElement | null} */ (document.querySelector("#auto-generate-ata"))
-    const ataClientNameInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#ata-client-name"))
-    const ataSubdiretoriaInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#ata-subdiretoria"))
     const ataTemplateFileInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#ata-template-file"))
     const resetAtaTemplateButton = /** @type {HTMLButtonElement | null} */ (document.querySelector("#reset-ata-template"))
 
     refreshGeminiLocalUi()
 
     chrome.storage.sync.get(
-        ["geminiModel", "autoGenerateAtaAfterMeeting", "ataClientName", "ataSubdiretoria"],
+        ["geminiModel", "autoGenerateAtaAfterMeeting"],
         function (resultSyncUntyped) {
             const resultSync = /** @type {ResultSync} */ (resultSyncUntyped || {})
             if (geminiModelSelect) {
@@ -481,12 +336,6 @@ function initGeminiAndTemplateSettings() {
             }
             if (autoGenerateAtaCheckbox) {
                 autoGenerateAtaCheckbox.checked = resultSync.autoGenerateAtaAfterMeeting === true
-            }
-            if (ataClientNameInput) {
-                ataClientNameInput.value = resultSync.ataClientName || ""
-            }
-            if (ataSubdiretoriaInput) {
-                ataSubdiretoriaInput.value = resultSync.ataSubdiretoria || ""
             }
         }
     )
@@ -531,32 +380,6 @@ function initGeminiAndTemplateSettings() {
     if (autoGenerateAtaCheckbox) {
         autoGenerateAtaCheckbox.addEventListener("change", function () {
             chrome.storage.sync.set({ autoGenerateAtaAfterMeeting: autoGenerateAtaCheckbox.checked })
-        })
-    }
-
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    let clientSaveTimer = null
-    if (ataClientNameInput) {
-        const persistClient = () => {
-            chrome.storage.sync.set({ ataClientName: ataClientNameInput.value.trim() })
-        }
-        ataClientNameInput.addEventListener("change", persistClient)
-        ataClientNameInput.addEventListener("input", () => {
-            if (clientSaveTimer) clearTimeout(clientSaveTimer)
-            clientSaveTimer = setTimeout(persistClient, 400)
-        })
-    }
-
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    let subdirSaveTimer = null
-    if (ataSubdiretoriaInput) {
-        const persistSubdir = () => {
-            chrome.storage.sync.set({ ataSubdiretoria: ataSubdiretoriaInput.value.trim() })
-        }
-        ataSubdiretoriaInput.addEventListener("change", persistSubdir)
-        ataSubdiretoriaInput.addEventListener("input", () => {
-            if (subdirSaveTimer) clearTimeout(subdirSaveTimer)
-            subdirSaveTimer = setTimeout(persistSubdir, 400)
         })
     }
 
@@ -846,34 +669,6 @@ function openAtaPreviewModal(index) {
 }
 
 /**
- * Request runtime permission for webhook URL.
- * @param {string} url
- */
-function requestWebhookAndNotificationPermission(url) {
-    return new Promise((resolve, reject) => {
-        try {
-            const urlObj = new URL(url)
-            const originPattern = `${urlObj.protocol}//${urlObj.hostname}/*`
-
-            chrome.permissions.request({
-                origins: [originPattern],
-                permissions: ["notifications"]
-            }).then((granted) => {
-                if (granted) {
-                    resolve("Permission granted")
-                } else {
-                    reject(new Error("Permission denied"))
-                }
-            }).catch((error) => {
-                reject(error)
-            })
-        } catch (error) {
-            reject(error)
-        }
-    })
-}
-
-/**
  * Loads and displays recent transcripts safely in #meetings-table.
  */
 function loadMeetings() {
@@ -931,8 +726,6 @@ function loadMeetings() {
                 if (generateAtaBtn instanceof HTMLButtonElement) {
                     generateAtaBtn.addEventListener("click", function () {
                         const index = parseInt(generateAtaBtn.getAttribute("data-index") ?? "-1", 10)
-                        const clientInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#ata-client-name"))
-                        const subdirInput = /** @type {HTMLInputElement | null} */ (document.querySelector("#ata-subdiretoria"))
                         const originalLabel = generateAtaBtn.textContent || "Gerar Ata"
 
                         generateAtaBtn.disabled = true
@@ -941,11 +734,7 @@ function loadMeetings() {
                         /** @type {ExtensionMessage} */
                         const message = {
                             type: "generate_ata_at_index",
-                            index,
-                            options: {
-                                clientName: clientInput ? clientInput.value.trim() : undefined,
-                                subdiretoria: subdirInput ? subdirInput.value.trim() : undefined
-                            }
+                            index
                         }
                         chrome.runtime.sendMessage(message, (responseUntyped) => {
                             const response = /** @type {ExtensionResponse} */ (responseUntyped)
@@ -1009,7 +798,7 @@ function loadMeetings() {
                         chrome.runtime.sendMessage(message, (responseUntyped) => {
                             const response = /** @type {ExtensionResponse} */ (responseUntyped)
                             if (!response?.success) {
-                                alert("Could not download transcript")
+                                alert("Não foi possível baixar a transcrição.")
                                 const parsedError = /** @type {ErrorObject} */ (response?.message)
                                 if (typeof parsedError === "object") {
                                     console.error(parsedError.errorMessage)
@@ -1019,51 +808,10 @@ function loadMeetings() {
                     })
                 }
 
-                const webhookPostButton = row.querySelector(".post-button")
-                if (webhookPostButton instanceof HTMLButtonElement) {
-                    webhookPostButton.addEventListener("click", function () {
-                        chrome.storage.sync.get(["webhookUrl"], function (resultSyncUntyped) {
-                            const resultSync = /** @type {ResultSync} */ (resultSyncUntyped || {})
-                            if (resultSync.webhookUrl) {
-                                requestWebhookAndNotificationPermission(resultSync.webhookUrl)
-                                    .then(() => {
-                                        webhookPostButton.disabled = true
-                                        webhookPostButton.textContent = meeting.webhookPostStatus === "new" ? "Posting..." : "Reposting..."
-
-                                        const index = parseInt(webhookPostButton.getAttribute("data-index") ?? "-1", 10)
-                                        /** @type {ExtensionMessage} */
-                                        const message = {
-                                            type: "post_webhook_at_index",
-                                            index: index
-                                        }
-                                        chrome.runtime.sendMessage(message, (responseUntyped) => {
-                                            const response = /** @type {ExtensionResponse} */ (responseUntyped)
-                                            loadMeetings()
-                                            if (response?.success) {
-                                                alert("Posted successfully!")
-                                            } else {
-                                                const parsedError = /** @type {ErrorObject} */ (response?.message)
-                                                if (typeof parsedError === "object") {
-                                                    console.error(parsedError.errorMessage)
-                                                }
-                                            }
-                                        })
-                                    })
-                                    .catch((error) => {
-                                        alert("Fine! No webhooks for you!")
-                                        console.error("Webhook permission error:", error)
-                                    })
-                            } else {
-                                alert("Please provide a webhook URL")
-                            }
-                        })
-                    })
-                }
-
                 const deleteButton = row.querySelector(".delete-button")
                 if (deleteButton instanceof HTMLButtonElement) {
                     deleteButton.addEventListener("click", function () {
-                        if (confirm("Delete this meeting?")) {
+                        if (confirm("Deseja excluir esta reunião do histórico?")) {
                             meetings.splice(i, 1)
                             chrome.storage.local.set({ meetings: meetings }, function () {
                                 console.log("Meeting deleted")
@@ -1075,7 +823,7 @@ function loadMeetings() {
 
             const meetingsTableContainer = document.querySelector("#meetings-table-container")
             if (renderedCount === 0) {
-                meetingsTable.innerHTML = `<tr><td colspan="6">Nenhuma reunião encontrada para o filtro informado.</td></tr>`
+                meetingsTable.innerHTML = `<tr><td colspan="5">Nenhuma reunião encontrada para o filtro informado.</td></tr>`
                 meetingsTableContainer?.classList.remove("fade-mask")
                 document.querySelector("#show-all")?.setAttribute("style", "display: none")
             } else if (!isMeetingsTableExpanded && !currentMeetingsFilter && meetingsTableContainer && meetingsTableContainer.clientHeight > 280) {
@@ -1086,7 +834,7 @@ function loadMeetings() {
                 document.querySelector("#show-all")?.setAttribute("style", "display: none")
             }
         } else {
-            meetingsTable.innerHTML = `<tr><td colspan="6">Your next meeting will show up here</td></tr>`
+            meetingsTable.innerHTML = `<tr><td colspan="5">Sua próxima reunião aparecerá aqui.</td></tr>`
         }
     })
 }

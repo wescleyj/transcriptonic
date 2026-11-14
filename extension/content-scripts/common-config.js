@@ -34,12 +34,6 @@ const commonCSS = `background: rgb(255 255 255 / 100%);
 
 const NOTIFICATION_PLATFORM_CONFIGS = {
     "google_meet": {
-        notificationText: "<strong>TranscripTonic is running</strong> <br /> Do not turn off captions"
-    },
-    "teams": {
-        notificationText: "<b>TranscripTonic is ready, enabling captions...</b> <br /> Please enable manually if not successful (More > Captions)"
-    },
-    "zoom": {
-        notificationText: "TranscripTonic is ready <br /> <b>Please switch on Zoom captions to begin (More > Captions)</b>"
+        notificationText: "<strong>TranscripTonic ativo</strong> <br /> Não desative as legendas do Google Meet"
     }
 }

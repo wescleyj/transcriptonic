@@ -65,17 +65,8 @@ function googleMeetRoutines(state) {
         // Wait for translate+captions icon to be visible. When user is waiting in meeting lobbing for someone to let them in, the call end icon is visible, but the captions icon is still not visible.
         waitForElement(SELECTORS_GOOGLE_MEET.GOOGLE_SYMBOLS, SELECTORS_GOOGLE_MEET.TEXT_CAPTIONS)
             .then(() => {
-                // Click translate+captions icon for non manual operation modes. Async operation.
-                chrome.storage.sync.get(["operationMode"], function (resultSyncUntyped) {
-                    const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-                    if (resultSync.operationMode === "manual") {
-                        console.log("Manual mode selected, leaving transcript off")
-                        showNotificationGoogleMeet({ status: 400, message: "<strong>TranscripTonic is not running</strong> <br /> Turn on captions using the CC icon, if needed" })
-                    }
-                    else {
-                        turnOnCaptionsGoogleMeet()
-                    }
-                })
+                // Always automatically turn on Google Meet captions
+                turnOnCaptionsGoogleMeet()
 
                 // Allow DOM to be updated. Once updated, next "then" block will be executed.
                 return waitForElement(SELECTORS_GOOGLE_MEET.TRANSCRIPT_REGION)
@@ -83,16 +74,13 @@ function googleMeetRoutines(state) {
             })
             .then((targetNode) => {
                 if (targetNode) {
-                    // CRITICAL DOM DEPENDENCY. Grab the transcript element. This element is present, irrespective of captions ON/OFF, so this executes independent of operation mode.
+                    // CRITICAL DOM DEPENDENCY. Grab the transcript element. This element is present, irrespective of captions ON/OFF.
                     state.transcriptTargetNode = targetNode
                     // Initial attach and monitor every 2s
                     startTranscriptMonitor(state)
 
-                    // Show confirmation message from extensionStatusJSON, once observation has started, based on operation mode
-                    chrome.storage.sync.get(["operationMode"], function (resultSyncUntyped) {
-                        const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-                        showNotificationGoogleMeet(state.extensionStatusJSON)
-                    })
+                    // Show confirmation message once observation has started
+                    showNotificationGoogleMeet(state.extensionStatusJSON)
                 }
                 else {
                     throw new Error("Transcript element not found in DOM")

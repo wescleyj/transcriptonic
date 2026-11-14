@@ -118,7 +118,8 @@ describe("Cross-browser packaging & manifests", () => {
         assert.ok(chromeManifest.permissions.includes("sidePanel"))
         assert.ok(chromeManifest.permissions.includes("unlimitedStorage"))
         assert.ok(chromeManifest.host_permissions.includes("https://generativelanguage.googleapis.com/*"))
-        assert.ok(chromeManifest.optional_host_permissions.includes("https://*.zoom.us/*"))
+        assert.equal(chromeManifest.optional_host_permissions, undefined)
+        assert.equal(chromeManifest.declarative_net_request, undefined)
         assert.ok(chromeManifest.web_accessible_resources?.[0]?.resources?.includes("templates/*"))
 
         const firefoxManifest = JSON.parse(fs.readFileSync(firefoxManifestPath, "utf8"))
@@ -130,6 +131,8 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(firefoxManifest.permissions.includes("sidePanel"), false)
         assert.ok(firefoxManifest.permissions.includes("unlimitedStorage"))
         assert.ok(firefoxManifest.host_permissions.includes("https://generativelanguage.googleapis.com/*"))
+        assert.equal(firefoxManifest.optional_host_permissions, undefined)
+        assert.equal(firefoxManifest.declarative_net_request, undefined)
 
         const meetingsScriptSrc = fs.readFileSync(path.join(EXTENSION_DIR, "background-script/meetings.js"), "utf8")
         assert.equal(meetingsScriptSrc.includes("meetings.slice(-10)"), false)
@@ -147,6 +150,16 @@ describe("Cross-browser packaging & manifests", () => {
         ]) {
             assert.ok(chromeEntries.has(required), `Chrome zip missing ${required}`)
             assert.ok(firefoxEntries.has(required), `Firefox zip missing ${required}`)
+        }
+
+        for (const removedAsset of [
+            "rules.json",
+            "content-scripts/teams/index.js",
+            "content-scripts/zoom/index.js",
+            "icons/webhook.svg"
+        ]) {
+            assert.equal(chromeEntries.has(removedAsset), false, `Chrome zip should not contain ${removedAsset}`)
+            assert.equal(firefoxEntries.has(removedAsset), false, `Firefox zip should not contain ${removedAsset}`)
         }
     })
 })
@@ -366,14 +379,14 @@ describe("Permission & FAB bug regressions", () => {
                 }
             },
             async () => {
-                await requestPlatformPermission("zoom")
+                await requestPlatformPermission("google_meet")
                 assert.equal(requested.length, 1)
-                assert.deepEqual(requested[0].origins, ["https://*.zoom.us/*"])
+                assert.deepEqual(requested[0].origins, ["https://meet.google.com/*"])
                 assert.deepEqual(requested[0].permissions, ["notifications"])
                 assert.equal(requested[0].permissions.includes("declarativeNetRequestWithHostAccess"), false)
 
                 containsResult = true
-                await requestPlatformPermission("zoom")
+                await requestPlatformPermission("google_meet")
                 assert.equal(requested.length, 1, "Should not prompt again when already granted")
             }
         )
@@ -444,14 +457,22 @@ describe("Security audit & privacy regressions", () => {
             meetingStartTimestamp: "2026-10-21T14:00:00.000Z",
             meetingEndTimestamp: "2026-10-21T14:45:00.000Z",
             transcript: [],
-            chatMessages: [],
-            webhookPostStatus: "new"
+            chatMessages: []
         }, 0)
 
         assert.equal(rowHtml.includes("<img src=x"), false)
         assert.equal(rowHtml.includes("<svg onload"), false)
+        assert.equal(rowHtml.includes("post-button"), false)
+        assert.equal(rowHtml.includes("webhook"), false)
         assert.ok(rowHtml.includes("&lt;img src=x onerror=alert(&quot;xss&quot;)&gt;"))
         assert.ok(rowHtml.includes("&lt;svg onload=alert(1)&gt;"))
+
+        const meetingsHtmlSrc = fs.readFileSync(path.join(EXTENSION_DIR, "meetings.html"), "utf8").toLowerCase()
+        const popupHtmlSrc = fs.readFileSync(path.join(EXTENSION_DIR, "popup/index.html"), "utf8").toLowerCase()
+        for (const forbidden of ["webhook", "ata-client-name", "ata-subdiretoria", "manual-mode", "enable-teams", "enable-zoom"]) {
+            assert.equal(meetingsHtmlSrc.includes(forbidden), false, `meetings.html should not contain ${forbidden}`)
+            assert.equal(popupHtmlSrc.includes(forbidden), false, `popup/index.html should not contain ${forbidden}`)
+        }
 
         const sidePanelSrc = fs.readFileSync(path.join(EXTENSION_DIR, "side-panel/side-panel.js"), "utf8")
         assert.equal(/meetingTitle\.innerHTML\s*=/.test(sidePanelSrc), false)

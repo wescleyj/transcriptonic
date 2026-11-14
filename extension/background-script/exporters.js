@@ -1,5 +1,4 @@
 import { getTranscriptString, getChatMessagesString, getTranscriptFileName, isFirefox } from './utils.js'
-import { TIMEFORMAT } from './config.js'
 
 /**
  * Converts a Blob into a Base64 string using ArrayBuffer (works in MV3 Service Workers, Firefox, and Node).
@@ -169,10 +168,9 @@ export async function downloadBlobOrDataUrl({ blob, fileName, fallbackFileName, 
 
 /**
  * @param {number} index
- * @param {boolean} [isWebhookEnabled]
  * @throws error codes: 009, 010
  */
-export function downloadTranscript(index, isWebhookEnabled) {
+export function downloadTranscript(index) {
     return new Promise((resolve, reject) => {
         chrome.storage.local.get(["meetings"], function (resultLocalUntyped) {
             const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped)
@@ -211,107 +209,6 @@ export function downloadTranscript(index, isWebhookEnabled) {
             else {
                 reject({ errorCode: "010", errorMessage: "Meeting at specified index not found" })
             }
-        })
-    })
-}
-
-/**
- * @param {number} index
- * @throws error code: 010, 011, 012
- */
-export function postTranscriptToWebhook(index) {
-    return new Promise((resolve, reject) => {
-        // Get webhook URL and meetings
-        chrome.storage.local.get(["meetings"], function (resultLocalUntyped) {
-            const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped)
-            chrome.storage.sync.get(["webhookUrl", "webhookBodyType"], function (resultSyncUntyped) {
-                const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-
-                if (resultSync.webhookUrl) {
-                    if (resultLocal.meetings && resultLocal.meetings[index]) {
-                        const meeting = resultLocal.meetings[index]
-
-                        /** @type {WebhookBody} */
-                        let webhookData
-                        if (resultSync.webhookBodyType === "advanced") {
-                            webhookData = {
-                                webhookBodyType: "advanced",
-                                meetingSoftware: meeting.meetingSoftware ? meeting.meetingSoftware : "",
-                                meetingTitle: meeting.meetingTitle || meeting.title || "",
-                                meetingStartTimestamp: new Date(meeting.meetingStartTimestamp).toISOString(),
-                                meetingEndTimestamp: new Date(meeting.meetingEndTimestamp).toISOString(),
-                                transcript: meeting.transcript,
-                                chatMessages: meeting.chatMessages
-                            }
-                        }
-                        else {
-                            webhookData = {
-                                webhookBodyType: "simple",
-                                meetingSoftware: meeting.meetingSoftware ? meeting.meetingSoftware : "",
-                                meetingTitle: meeting.meetingTitle || meeting.title || "",
-                                meetingStartTimestamp: new Date(meeting.meetingStartTimestamp).toLocaleString("default", TIMEFORMAT).toUpperCase(),
-                                meetingEndTimestamp: new Date(meeting.meetingEndTimestamp).toLocaleString("default", TIMEFORMAT).toUpperCase(),
-                                transcript: getTranscriptString(meeting.transcript),
-                                chatMessages: getChatMessagesString(meeting.chatMessages)
-                            }
-                        }
-
-                        // Post to webhook
-                        fetch(resultSync.webhookUrl, {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify(webhookData)
-                        }).then(async response => {
-                            if (!response.ok) {
-                                throw new Error(`Webhook request failed with HTTP status code ${response.status} ${response.statusText}`)
-                            }
-                            return response.json().catch(() => null)
-                        }).then((responseData) => {
-                            // @ts-ignore - Pointless type error about resultLocal.meetings being undefined, which is already checked above.
-                            const meetingEntry = resultLocal.meetings[index]
-                            meetingEntry.webhookPostStatus = "successful"
-                            const candidateUrl = responseData?.transcriptUrl || responseData?.url || responseData?.webViewLink || responseData?.html_url
-                            if (typeof candidateUrl === "string" && /^https?:\/\//i.test(candidateUrl.trim())) {
-                                meetingEntry.transcriptUrl = candidateUrl.trim()
-                            }
-                            chrome.storage.local.set({ meetings: resultLocal.meetings }, function () {
-                                resolve("Webhook posted successfully")
-                            })
-                        }).catch(error => {
-                            console.error(error)
-                            // Update failure status.
-                            // @ts-ignore - Pointless type error about resultLocal.meetings being undefined, which is already checked above.
-                            resultLocal.meetings[index].webhookPostStatus = "failed"
-                            chrome.storage.local.set({ meetings: resultLocal.meetings }, function () {
-                                // Create notification and open webhooks page if notifications API is available
-                                if (chrome.notifications && typeof chrome.notifications.create === "function") {
-                                    chrome.notifications.create({
-                                        type: "basic",
-                                        iconUrl: chrome.runtime.getURL("icon.png"),
-                                        title: "Could not post webhook!",
-                                        message: "Click to view status and retry. Check console for more details."
-                                    }, function (notificationId) {
-                                        chrome.notifications.onClicked.addListener(function (clickedNotificationId) {
-                                            if (clickedNotificationId === notificationId) {
-                                                chrome.tabs.create({ url: chrome.runtime.getURL("meetings.html") })
-                                            }
-                                        })
-                                    })
-                                }
-                                reject({ errorCode: "011", errorMessage: error })
-                            })
-                        })
-                    }
-                    else {
-                        reject({ errorCode: "010", errorMessage: "Meeting at specified index not found" })
-                    }
-                }
-                else {
-                    reject({ errorCode: "012", errorMessage: "No webhook URL configured" })
-                }
-            })
         })
     })
 }

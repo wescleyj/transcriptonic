@@ -1,6 +1,6 @@
 import { ALARM_NAME } from "./config.js"
 import { processLastMeeting, recoverLastMeeting } from "./meetings.js"
-import { downloadTranscript, postTranscriptToWebhook } from "./exporters.js"
+import { downloadTranscript } from "./exporters.js"
 import { generateAtaAtIndex, downloadAtaAtIndex, resolveGeminiModel } from "./ata-generator.js"
 import {
     getPermissionStatus,
@@ -9,8 +9,6 @@ import {
     registerContentScript,
     deregisterContentScript,
     reRegisterContentScripts,
-    registerZoomRedirect,
-    deregisterZoomRedirect,
 } from "./platforms.js"
 import {
     clearTabIdAndApplyUpdate,
@@ -22,7 +20,6 @@ import {
 const ASYNC_RESPONSE_TYPES = new Set([
     "meeting_ended",
     "download_transcript_at_index",
-    "post_webhook_at_index",
     "generate_ata_at_index",
     "download_ata_at_index",
     "recover_last_meeting",
@@ -84,7 +81,7 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
     if (message.type === "download_transcript_at_index") {
         if ((typeof message.index === "number") && (message.index >= 0)) {
             // Download the requested item
-            downloadTranscript(message.index, false)
+            downloadTranscript(message.index)
                 .then(() => {
                     /** @type {ExtensionResponse} */
                     const response = { success: true }
@@ -94,32 +91,6 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
                     // Fails with error codes: 009, 010
                     const parsedError = /** @type {ErrorObject} */ (error)
 
-                    /** @type {ExtensionResponse} */
-                    const response = { success: false, message: parsedError }
-                    sendResponse(response)
-                })
-        }
-        else {
-            /** @type {ExtensionResponse} */
-            const response = { success: false, message: { errorCode: "015", errorMessage: "Invalid index" } }
-            sendResponse(response)
-        }
-    }
-
-    if (message.type === "post_webhook_at_index") {
-        if ((typeof message.index === "number") && (message.index >= 0)) {
-            // Handle webhook retry
-            postTranscriptToWebhook(message.index)
-                .then(() => {
-                    /** @type {ExtensionResponse} */
-                    const response = { success: true }
-                    sendResponse(response)
-                })
-                .catch(error => {
-                    // Fails with error codes: 009, 010, 011, 012
-                    const parsedError = /** @type {ErrorObject} */ (error)
-
-                    console.error("Webhook retry failed:", parsedError)
                     /** @type {ExtensionResponse} */
                     const response = { success: false, message: parsedError }
                     sendResponse(response)
@@ -243,19 +214,9 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
         let platform = message.platform || "google_meet"
 
         requestPlatformPermission(platform).then(() => {
-            // After permissions are granted, register both the scripts and the redirect rule for zoom
-            const promises = [registerContentScript(platform)]
-
-            const platformsArray = Array.isArray(platform) ? platform : [platform]
-            const hasZoom = platformsArray.includes("zoom")
-
-            if (hasZoom) {
-                promises.push(registerZoomRedirect())
-            }
-
-            Promise.all(promises).then((results) => {
+            registerContentScript(platform).then((result) => {
                 /** @type {ExtensionResponse} */
-                const response = { success: true, message: results[0] }
+                const response = { success: true, message: result }
                 sendResponse(response)
             }).catch((error) => {
                 const parsedError = /** @type {ErrorObject} */ (error)
@@ -278,19 +239,10 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
         /** @type {Platform | Platform[]} */
         let platform = message.platform || "google_meet"
 
-        // To disable, we simply unregister the content scripts and any redirect rules
-        const promises = [deregisterContentScript(platform)]
-
-        const platformsArray = Array.isArray(platform) ? platform : [platform]
-        const hasZoom = platformsArray.includes("zoom")
-
-        if (hasZoom) {
-            promises.push(deregisterZoomRedirect())
-        }
-
-        Promise.all(promises).then((results) => {
+        // To disable, we simply unregister the content scripts
+        deregisterContentScript(platform).then((result) => {
             /** @type {ExtensionResponse} */
-            const response = { success: true, message: results[0] }
+            const response = { success: true, message: result }
             sendResponse(response)
         }).catch((error) => {
             const parsedError = /** @type {ErrorObject} */ (error)
@@ -371,14 +323,13 @@ chrome.runtime?.onUpdateAvailable?.addListener(() => {
     })
 })
 
-// Register content scripts and Zoom redirect whenever runtime permissions change—serialized after de-registration to avoid race conditions.
+// Register content scripts whenever runtime permissions change—serialized after de-registration to avoid race conditions.
 chrome.permissions?.onAdded?.addListener(() => {
     setTimeout(() => {
         /** @type {Platform[]} */
-        const platforms = ["google_meet", "teams", "zoom"]
-        const deRegisterPromises = [deregisterContentScript(platforms), deregisterZoomRedirect()]
+        const platforms = ["google_meet"]
 
-        Promise.all(deRegisterPromises)
+        deregisterContentScript(platforms)
             .then(() => {
                 console.log("De-registered all content scripts. Starting re-registration...")
                 reRegisterContentScripts()
@@ -394,19 +345,25 @@ chrome.permissions?.onAdded?.addListener(() => {
 chrome.runtime?.onInstalled?.addListener(() => {
     // Set default values
     chrome.storage.sync.get(null, function (resultSyncUntyped) {
-        const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
+        const resultSync = /** @type {ResultSync} */ (resultSyncUntyped || {})
+
+        chrome.storage.sync.remove([
+            "webhookUrl",
+            "autoPostWebhookAfterMeeting",
+            "webhookBodyType",
+            "ataClientName",
+            "ataSubdiretoria",
+            "wantTeams",
+            "wantZoom"
+        ])
 
         chrome.storage.sync.set({
-            autoPostWebhookAfterMeeting: resultSync.autoPostWebhookAfterMeeting === false ? false : true,
             autoDownloadFileAfterMeeting: resultSync.autoDownloadFileAfterMeeting === false ? false : true,
             autoGenerateAtaAfterMeeting: resultSync.autoGenerateAtaAfterMeeting === true ? true : false,
             geminiModel: resolveGeminiModel(resultSync.geminiModel),
-            operationMode: resultSync.operationMode === "manual" ? "manual" : "auto",
+            operationMode: "auto",
             hideCaptions: resultSync.hideCaptions === true ? true : false,
-            webhookBodyType: resultSync.webhookBodyType === "advanced" ? "advanced" : "simple",
-            wantGoogleMeet: resultSync.wantGoogleMeet === false ? false : true,
-            wantTeams: resultSync.wantTeams === true ? true : false,
-            wantZoom: resultSync.wantZoom === true ? true : false
+            wantGoogleMeet: true
         }, function () {
             // Re-register content scripts whenever extension is installed or updated, provided permissions are available.
             reRegisterContentScripts()
@@ -414,6 +371,10 @@ chrome.runtime?.onInstalled?.addListener(() => {
 
         checkAndCreateAlarm()
     })
+})
+
+chrome.runtime?.onStartup?.addListener(() => {
+    reRegisterContentScripts()
 })
 
 chrome.alarms?.onAlarm?.addListener((alarm) => {

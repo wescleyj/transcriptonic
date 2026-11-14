@@ -96,14 +96,14 @@
             background: #2A9ACA;
         }
 
-        .webhook-header {
+        .card-header {
             padding: 1rem 1.5rem;
             background: #2a9aca1a;
             margin-bottom: 1.5rem;
             margin-top: -1.5rem;
         }
 
-        .webhook-header p {
+        .card-header p {
             margin: 0;
         }
 
@@ -152,10 +152,6 @@
             box-sizing: border-box;
         }
 
-        #webhook-url {
-            border-radius: 4px 0px 0px 4px;
-        }
-
         select option {
             background: #071f29;
             color: #E0E0E0;
@@ -200,10 +196,6 @@
             font-family: "TASA Explorer", sans-serif;
             font-weight: bold;
             cursor: pointer;
-        }
-
-        #save-webhook {
-            border-radius: 0px 4px 4px 0px;
         }
 
         button:disabled {
@@ -431,19 +423,6 @@
 <body>
 
     <div style="margin: 0px auto; max-width: 1440px;">
-        <dialog id="permission-dialog" closedby="any">
-            <p style="margin-bottom: 1rem;">TranscripTonic needs additional permissions to function smoothly.
-                <br />Please review and
-                approve?
-                <br /><br />
-                <span class="sub-text">PS: Sorry for hijacking whatever you were doing :(</span>
-            </p>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button id="later-button">Later</button>
-                <button id="review-button">Review</button>
-            </div>
-        </dialog>
-
         <dialog id="transcript-modal">
             <div class="modal-header">
                 <h2 id="transcript-modal-title" style="margin: 0;">Transcrição Completa</h2>
@@ -476,17 +455,16 @@
                 <h2>Histórico de Reuniões</h2>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                     <input type="search" id="meetings-search" placeholder="Filtrar por cliente, objetivo, data ou participante..." style="max-width: 340px; padding: 0.4rem 0.65rem;" />
-                    <button id="recover-last-meeting">Recover last meeting</button>
+                    <button id="recover-last-meeting">Recuperar última reunião</button>
                 </div>
             </div>
             <div id="meetings-table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Meeting title</th>
-                            <th>Meeting software</th>
-                            <th>Meeting start time and duration</th>
-                            <th>Webhook status</th>
+                            <th>Reunião</th>
+                            <th>Plataforma</th>
+                            <th>Início e duração</th>
                             <th>Ata (Gemini)</th>
                             <th></th>
                         </tr>
@@ -496,9 +474,7 @@
                     </tbody>
                 </table>
             </div>
-            <button id="show-all" style="display: none;">Show
-                all
-            </button>
+            <button id="show-all" style="display: none;">Mostrar todas</button>
         </section>
 
         <section id="ata-settings">
@@ -507,7 +483,7 @@
 
             <div class="grid-container">
                 <div class="card">
-                    <div class="webhook-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                         <p class="card-heading" style="margin: 0;">Configuração do Gemini</p>
                         <span id="gemini-key-status" class="sub-text">Chave não configurada</span>
                     </div>
@@ -539,28 +515,15 @@
                             <label for="auto-generate-ata">Gerar Ata (.docx) automaticamente ao término de cada reunião</label>
                         </div>
                     </div>
-
-                    <hr />
-
-                    <div class="form-field">
-                        <label for="ata-client-name">Cliente / Empresa padrão (opcional)</label>
-                        <input type="text" id="ata-client-name" placeholder="Ex.: Nome da Empresa" style="margin-top: 0.4rem;" />
-                    </div>
-
-                    <div class="form-field">
-                        <label for="ata-subdiretoria">Subdiretoria padrão (opcional)</label>
-                        <input type="text" id="ata-subdiretoria" placeholder="Ex.: Projetos / Comercial" style="margin-top: 0.4rem;" />
-                    </div>
                 </div>
 
                 <div class="card">
-                    <div class="webhook-header">
+                    <div class="card-header">
                         <p class="card-heading" style="margin: 0;">Modelo de Formatação da Ata</p>
                     </div>
 
                     <div class="form-field">
                         <p style="margin-top: 0;">Modelo ativo: <strong id="ata-template-status">Padrão embutido (MODELO ATA.docx)</strong></p>
-                        <p class="sub-text">O modelo padrão segue exatamente o layout oficial do arquivo MODELO ATA.docx (título ATA DE REUNIÃO em Antonio #004AAD, fontes Arimo/Canva Sans, tabela de 5 colunas com bordas turquesa #00D0DD e fundo #D4F8F8, Pauta numerada, tabela-resumo opcional, Encaminhamentos e Anexo I automático com a transcrição completa após uma página em branco).</p>
                     </div>
 
                     <div class="form-field">
@@ -570,149 +533,6 @@
                             <button type="button" id="reset-ata-template" class="btn-outline">Restaurar padrão</button>
                         </div>
                     </div>
-                </div>
-            </div>
-        </section>
-
-        <section id="webhooks">
-            <h2 style="margin-bottom: 0;">Integrate TranscripTonic with your favourite tools</h2>
-
-            <p style="margin-top: 0.5rem" class="sub-text">You can connect TranscripTonic directly to any tool that
-                supports webhooks.
-                If
-                it does not, you can use
-                automation tools like n8n as a bridge.</p>
-
-            <div class="grid-container">
-                <div class="card">
-                    <div class="webhook-header" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <p class="card-heading" style="margin: 0;">Configure webhook</p>
-                        <img src="./icons/webhook-white.svg" alt="" width="20px">
-                    </div>
-                    <form id="webhook-url-form" class="form-field">
-                        <label for="webhook-url">Webhook URL</label>
-                        <div class="input-group" style="gap: 0;">
-                            <input type="url" id="webhook-url" placeholder="https://your-webhook-url.com">
-                            <button id="save-webhook">Save</button>
-                        </div>
-                    </form>
-
-                    <hr />
-
-                    <form class="form-field">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="auto-post-webhook" checked>
-                            <label for="auto-post-webhook">
-                                Automatically post transcript to webhook URL, after each meeting
-                            </label>
-                        </div>
-                        <div class="checkbox-group" style="margin-top: 1.5rem; display: none;">
-                            <input type="checkbox" id="auto-download-file" checked>
-                            <label for="auto-download-file">
-                                Automatically download transcript text file, after each meeting
-                            </label>
-                        </div>
-                    </form>
-
-                    <hr />
-
-                    <form class="form-field">
-                        <div class="radio-item">
-                            <input type="radio" name="webhook-body-type" id="simple-webhook-body" checked />
-                            <label for="simple-webhook-body"><b>Simple webhook body</b>
-                                <br /><span class="sub-text">Pre-formatted data, suitable for no-code
-                                    integrations</span>
-                            </label>
-                        </div>
-                        <div class="radio-item">
-                            <input type="radio" name="webhook-body-type" id="advanced-webhook-body" />
-                            <label for="advanced-webhook-body"><b>Advanced webhook body</b> <br />
-                                <span class="sub-text">Raw data, suitable for code integrations</span>
-                            </label>
-                        </div>
-                    </form>
-                </div>
-
-                <div class="card">
-                    <div class="webhook-header" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <p class="card-heading" style="margin: 0;">Webhook help</p>
-                    </div>
-                    <p class="card-heading">Webhook integration guides</p>
-                    <div class="integration-card">
-                        <a class="integration-guide"
-                            href="https://github.com/vivek-nexus/transcriptonic/wiki/Google-Docs-integration-guide?utm_source=extension"
-                            target="_blank">
-                            <img src="./icons/guide.svg" alt="" width="16px">
-                            <p>Get transcripts on Google Docs</p>
-                        </a>
-                        <a class="integration-guide"
-                            href="https://github.com/vivek-nexus/transcriptonic/wiki/n8n-integration-guide?utm_source=extension"
-                            target="_blank">
-                            <img src="./icons/guide.svg" alt="" width="16px">
-                            <p>Using webhooks with n8n</p>
-                        </a>
-                    </div>
-                    <hr />
-                    <p class="card-heading">Webhook JSON body</p>
-                    <details>
-                        <summary>Webhook body (simple)</summary>
-                        <div class="code-block accordion-content">
-                            <code>
-                        <pre>
-{
-    "webhookBodyType": "simple",
-    "meetingSoftware": "Google Meet",
-    "meetingTitle": "Team meeting",
-    "meetingStartTimestamp": "01/15/2024, 10:00 AM",
-    "meetingEndTimestamp": "01/15/2024, 11:00 AM",
-    "transcript": "Priya (01/15/2024, 10:00 AM)\nHi everyone!\n\nCarlos (01/15/2024, 10:01 AM)\nHello Priya!...\n\n",
-    "chatMessages": "Mohammed (01/15/2024, 10:05 AM)\nCan you share the slides?\n\nSofia (01/15/2024, 10:06 AM)\nHere's the link: ...\n\n"
-}
-</pre>
-                        </code>
-                        </div>
-                    </details>
-
-                    <details>
-                        <summary>Webhook body (advanced)</summary>
-                        <div class="code-block accordion-content">
-                            <code>
-                            <pre>
-{
-    "webhookBodyType": "advanced",
-    "meetingSoftware": "Google Meet",
-    "meetingTitle": "Team meeting",
-    "meetingStartTimestamp": "2024-01-15T10:00:00.000Z",
-    "meetingEndTimestamp": "2024-01-15T11:00:00.000Z",
-    "transcript": [
-        {
-            "personName": "Priya",
-            "timestamp": "2024-01-15T10:00:00.000Z",
-            "transcriptText": "Hi everyone!"
-        },
-        {
-            "personName": "Carlos",
-            "timestamp": "2024-01-15T10:01:00.000Z",
-            "transcriptText": "Hello Priya!"
-        }
-    ],
-    "chatMessages": [
-        {
-            "personName": "Mohammed",
-            "timestamp": "2024-01-15T10:05:00.000Z",
-            "chatMessageText": "Can you share the slides?"
-        },
-        {
-            "personName": "Sofia",
-            "timestamp": "2024-01-15T10:06:00.000Z",
-            "chatMessageText": "Here's the link: ..."
-        }
-    ]
-}
-</pre>
-                    </code>
-                        </div>
-                    </details>
                 </div>
             </div>
         </section>

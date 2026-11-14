@@ -1,5 +1,4 @@
 import { ALARM_NAME, INTERVAL_IN_MINUTES, TIMEFORMAT } from "./config.js"
-import { getPermissionStatus } from "./platforms.js"
 
 const INVALID_FILENAME_REGEX = /[:?"*<>|~/\\\u{1}-\u{1f}\u{7f}\u{80}-\u{9f}\p{Cf}\p{Cn}]|^[.\u{0}\p{Zl}\p{Zp}\p{Zs}]|[.\u{0}\p{Zl}\p{Zp}\p{Zs}]$|^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/gui
 
@@ -215,45 +214,5 @@ export function openSidePanel(senderTabId) {
                 console.error("Failed to open side panel window:", error)
                 reject("Failed to open side panel")
             })
-    })
-}
-
-export function checkPermissionsAndOpenMeetingsPage() {
-    console.log("Check permissions")
-    chrome.storage.sync.get(["wantGoogleMeet", "wantTeams", "wantZoom"], function (resultSyncUntyped) {
-        const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-
-        /** @type {Platform[]} */
-        const wantedPlatforms = []
-        // Consider enabled if user has not explicitly opted out
-        if (resultSync.wantGoogleMeet) {
-            wantedPlatforms.push("google_meet")
-        }
-        if (resultSync.wantTeams) {
-            wantedPlatforms.push("teams")
-        }
-        if (resultSync.wantZoom) {
-            wantedPlatforms.push("zoom")
-        }
-
-        getPermissionStatus(wantedPlatforms).then((result) => {
-            console.log(result)
-
-            /** @type {Platform[]} */
-            const permissionMissingPlatforms = []
-
-            for (let i = 0; i < wantedPlatforms.length; i++) {
-                if (Array.isArray(result) && result[i] === "Disabled") {
-                    permissionMissingPlatforms.push(wantedPlatforms[i])
-                }
-            }
-
-            if (permissionMissingPlatforms.length > 0) {
-                console.log(permissionMissingPlatforms)
-                chrome.tabs.create({
-                    url: chrome.runtime.getURL("meetings.html")
-                })
-            }
-        })
     })
 }

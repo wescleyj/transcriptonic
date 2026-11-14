@@ -858,8 +858,8 @@ DADOS DA REUNIÃO:
 - Título capturado: ${meeting?.meetingTitle || meeting?.title || "Reunião"}
 - Plataforma / Local sugerido: ${defaultLocal}
 - Data e horário sugerido: ${defaultDateTime}
-- Cliente padrão informado: ${clientName || '(extrair do título ou contexto apenas se houver cliente/empresa/projeto real; caso contrário deixar "")'}
-- Subdiretoria padrão informada: ${subdiretoria || "(extrair se mencionado na reunião, senão deixar vazio)"}
+- Cliente / Empresa / Projeto: ${clientName || 'extrair do título ou contexto apenas se houver cliente/empresa/projeto real tratado; caso contrário deixar ""'}
+- Subdiretoria: ${subdiretoria || 'extrair se mencionado na reunião; caso contrário deixar ""'}
 - Participantes detectados: ${detectedParticipants.join(", ") || "Não identificados"}
 
 ${template?.extractedText ? `MODELO DE REFERÊNCIA EM TEXTO:\n${template.extractedText}\n` : ""}
@@ -875,7 +875,7 @@ REGRAS DE PREENCHIMENTO:
 {
   "cliente": "Nome do Cliente, Empresa ou Projeto (deixar \"\" se não houver; NUNCA usar códigos de sala como xxx-xxxx-xxx)",
   "assuntoResumido": "Resumo curto (3 a 7 palavras) do objetivo/tema central tratado na reunião",
-  "local": "Meet | Teams | Zoom | outro",
+  "local": "Meet | outro",
   "dataHorario": "DD/MM/YYYY; HH:MM",
   "participantes": ["Nome 1", "Nome 2"],
   "ausentes": "----- ou nomes mencionados como ausentes",
@@ -1933,7 +1933,7 @@ export function buildTranscriptAccessInfo(meeting, _index) {
 export async function generateAtaAtIndex(index, options = {}) {
     const [resultLocal, resultSync] = await Promise.all([
         new Promise((resolve) => chrome.storage.local.get(["meetings", "geminiApiKey"], (res) => resolve(res || {}))),
-        new Promise((resolve) => chrome.storage.sync.get(["geminiModel", "ataClientName", "ataSubdiretoria"], (res) => resolve(res || {})))
+        new Promise((resolve) => chrome.storage.sync.get(["geminiModel"], (res) => resolve(res || {})))
     ])
 
     const meetings = resultLocal.meetings || []
@@ -1948,8 +1948,8 @@ export async function generateAtaAtIndex(index, options = {}) {
     }
 
     const model = resolveGeminiModel(options.model || resultSync.geminiModel)
-    const clientName = options.clientName ?? resultSync.ataClientName ?? ""
-    const subdiretoria = options.subdiretoria ?? resultSync.ataSubdiretoria ?? ""
+    const clientName = options.clientName ?? ""
+    const subdiretoria = options.subdiretoria ?? ""
 
     const template = await loadAtaTemplate()
     const ataData = await callGeminiForAta({

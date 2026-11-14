@@ -163,6 +163,20 @@ function dispatchKeyboardShortcut(key, code, modifiers) {
 }
 
 
+/**
+ * Applies or clears hidden styles on the Google Meet captions container.
+ * @param {Element | null} targetNode
+ * @param {boolean} shouldHide
+ */
+function applyCaptionsVisibility(targetNode, shouldHide) {
+    if (!targetNode) return
+    if (shouldHide) {
+        targetNode.setAttribute("style", "opacity:0; height:0px; overflow:hidden; pointer-events:none")
+    } else {
+        targetNode.removeAttribute("style")
+    }
+}
+
 /** 
  * @description Single, flat polling monitor that handles initial attachment and all re-attachments.
  * @param {ContentScriptState} state
@@ -173,6 +187,16 @@ function startTranscriptMonitor(state) {
      * @type {number | undefined}
      */
     let monitorInterval = undefined
+    let hasHideCaptionsListener = false
+
+    if (typeof chrome !== "undefined" && chrome.storage?.onChanged && !hasHideCaptionsListener) {
+        hasHideCaptionsListener = true
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName === "sync" && changes.hideCaptions && state.transcriptTargetNode) {
+                applyCaptionsVisibility(state.transcriptTargetNode, changes.hideCaptions.newValue === true)
+            }
+        })
+    }
 
     // Call immediately
     transcriptMonitor()
@@ -185,22 +209,7 @@ function startTranscriptMonitor(state) {
             return
         }
 
-        let activeNode
-
-        switch (state.platform) {
-            case "google_meet":
-                activeNode = document.querySelector(SELECTORS_GOOGLE_MEET.TRANSCRIPT_REGION)
-                break
-            case "teams":
-                activeNode = document.querySelector(SELECTORS_TEAMS.CAPTIONS_REGION)
-                break
-            case "zoom":
-                const iframe = /** @type {Document} */ (/** @type {HTMLIFrameElement} */(document.querySelector(SELECTORS_ZOOM.IFRAME))?.contentDocument)
-                activeNode = iframe.querySelector(SELECTORS_ZOOM.TRANSCRIPT_CONTAINER)
-                break
-            default:
-                break
-        }
+        const activeNode = document.querySelector(SELECTORS_GOOGLE_MEET.TRANSCRIPT_REGION)
 
         if (!activeNode) {
             return
@@ -227,38 +236,14 @@ function startTranscriptMonitor(state) {
 
             state.transcriptTargetNode = activeNode
             state.transcriptObserver = new MutationObserver((mutations) => {
-                switch (state.platform) {
-                    case "google_meet":
-                        transcriptMutationCallbackGoogleMeet(state, mutations)
-                        break
-                    case "teams":
-                        transcriptMutationCallbackTeams(state, mutations)
-                        break
-                    case "zoom":
-                        transcriptMutationCallbackZoom(state, mutations)
-                        break
-                    default:
-                        break
-                }
+                transcriptMutationCallbackGoogleMeet(state, mutations)
             })
             state.transcriptObserver.observe(activeNode, mutationConfig)
 
             // If specified, hide the whole transcript node
             chrome.storage.sync.get(["hideCaptions"], function (resultSyncUntyped) {
                 const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-                if ((resultSync.hideCaptions === true) && (state.transcriptTargetNode)) {
-                    if (state.platform === "teams") {
-                        waitForElement(SELECTORS_TEAMS.CAPTIONS_REGION_WRAPPER).then((element) => {
-                            element?.setAttribute("style", `height:40px`)
-                        })
-                        waitForElement(SELECTORS_TEAMS.CAPTIONS_REGION).then((element) => {
-                            element?.setAttribute("style", `opacity:0`)
-                        })
-                    }
-                    else {
-                        state.transcriptTargetNode.setAttribute("style", `opacity:0; height:0px`)
-                    }
-                }
+                applyCaptionsVisibility(state.transcriptTargetNode, resultSync?.hideCaptions === true)
             })
         }
     }

@@ -1,23 +1,23 @@
-import { downloadTranscript, postTranscriptToWebhook } from './exporters.js'
+import { downloadTranscript } from './exporters.js'
 import { generateAtaAtIndex } from './ata-generator.js'
 
-// Download transcripts, post webhook if URL is enabled and available, and optionally generate Ata
-// Fails if transcript is empty or webhook request fails or if no meetings in storage
-/** @throws error codes: 009, 010, 011, 012, 013, 014 */
+// Download transcript and optionally generate Ata
+// Fails if transcript is empty or no meetings in storage
+/** @throws error codes: 009, 010, 013, 014 */
 export function processLastMeeting() {
     return new Promise((resolve, reject) => {
         pickupLastMeetingFromStorage()
             .then(() => {
                 chrome.storage.local.get(["meetings", "geminiApiKey"], function (resultLocalUntyped) {
                     const resultLocal = /** @type {ResultLocal} */ (resultLocalUntyped)
-                    chrome.storage.sync.get(["webhookUrl", "autoPostWebhookAfterMeeting", "autoDownloadFileAfterMeeting", "autoGenerateAtaAfterMeeting"], function (resultSyncUntyped) {
+                    chrome.storage.sync.get(["autoDownloadFileAfterMeeting", "autoGenerateAtaAfterMeeting"], function (resultSyncUntyped) {
                         const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
 
                         // Create an array of promises to execute in parallel
                         /** @type {Promise<any>[]} */
                         const promises = []
 
-                        // Meeting index to download and post webhook
+                        // Meeting index to download
                         // @ts-ignore - Because this line exists in the resolved promise from pickupLastMeetingFromStorage, which clearly means that at least one meeting exists and resultLocal.meetings cannot be undefined.
                         const lastIndex = resultLocal.meetings.length - 1
 
@@ -28,12 +28,7 @@ export function processLastMeeting() {
                             )
                         }
 
-                        // Promise to post webhook if enabled
-                        if (resultSync.autoPostWebhookAfterMeeting && resultSync.webhookUrl) {
-                            promises.push(postTranscriptToWebhook(lastIndex))
-                        }
-
-                        // Execute download and webhook sequentially before optional Ata generation to prevent storage write races
+                        // Execute download sequentially before optional Ata generation to prevent storage write races
                         Promise.all(promises)
                             .then(async () => {
                                 if (resultSync.autoGenerateAtaAfterMeeting && resultLocal.geminiApiKey) {
@@ -43,10 +38,10 @@ export function processLastMeeting() {
                                         console.error("Auto Ata generation failed:", ataErr)
                                     }
                                 }
-                                resolve("Meeting processing and download/webhook posting complete")
+                                resolve("Meeting processing and download complete")
                             })
                             .catch(error => {
-                                // Fails with error codes: 009, 010, 011, 012
+                                // Fails with error codes: 009, 010
                                 const parsedError = /** @type {ErrorObject} */ (error)
                                 console.error("Operation failed:", parsedError.errorMessage)
                                 reject({ errorCode: parsedError.errorCode, errorMessage: parsedError.errorMessage })
@@ -82,13 +77,12 @@ export function pickupLastMeetingFromStorage() {
                     // Create new transcript entry
                     /** @type {Meeting} */
                     const newMeetingEntry = {
-                        meetingSoftware: result.meetingSoftware ? result.meetingSoftware : "",
+                        meetingSoftware: result.meetingSoftware || "Google Meet",
                         meetingTitle: result.meetingTitle,
                         meetingStartTimestamp: result.meetingStartTimestamp,
                         meetingEndTimestamp: new Date().toISOString(),
                         transcript: result.transcript,
-                        chatMessages: result.chatMessages,
-                        webhookPostStatus: "new"
+                        chatMessages: result.chatMessages
                     }
 
                     // Get existing recent meetings and add the new meeting

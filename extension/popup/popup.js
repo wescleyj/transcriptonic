@@ -1,19 +1,3 @@
-const PLATFORM_PERMISSION_ORIGINS = {
-  google_meet: ["https://meet.google.com/*"],
-  teams: [
-    "https://teams.live.com/*",
-    "https://teams.microsoft.com/*",
-    "https://teams.cloud.microsoft/*",
-    "https://teams.microsoft.com.mcas.ms/*",
-    "https://teams.cloud.microsoft.mcas.ms/*",
-    "https://teams.microsoft.com.mcas-gov.us/*",
-    "https://teams.cloud.microsoft.mcas-gov.us/*",
-    "https://teams.microsoft.com.mcas-gov.ms/*",
-    "https://teams.cloud.microsoft.mcas-gov.ms/*"
-  ],
-  zoom: ["https://*.zoom.us/*"]
-}
-
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 const LEGACY_GEMINI_MODELS = new Set([
   "gemini-2.5-flash-lite",
@@ -35,25 +19,7 @@ function resolveGeminiModel(model) {
 }
 
 window.onload = function () {
-  if (chrome.scripting && typeof chrome.scripting.getRegisteredContentScripts === "function") {
-    chrome.scripting
-      .getRegisteredContentScripts()
-      .then((scripts) => {
-        console.log(scripts)
-      })
-      .catch((err) => {
-        console.warn("Could not list registered content scripts:", err)
-      })
-  }
-
-  const autoModeRadio = document.querySelector("#auto-mode")
-  const manualModeRadio = document.querySelector("#manual-mode")
   const versionElement = document.querySelector("#version")
-
-  // Platform Checkboxes
-  const googleMeetToggle = /** @type {HTMLInputElement} */ (document.querySelector("#enable-google-meet"))
-  const teamsToggle = /** @type {HTMLInputElement} */ (document.querySelector("#enable-teams"))
-  const zoomToggle = /** @type {HTMLInputElement} */ (document.querySelector("#enable-zoom"))
   const hideCaptionsToggle = /** @type {HTMLInputElement} */ (document.querySelector("#hide-captions"))
 
   // Gemini Ata controls
@@ -69,25 +35,6 @@ window.onload = function () {
   if (versionElement) {
     versionElement.textContent = `v${chrome.runtime.getManifest().version}`
   }
-
-  chrome.storage.sync.get(["operationMode"], function (resultSyncUntyped) {
-    const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
-    if (autoModeRadio instanceof HTMLInputElement && manualModeRadio instanceof HTMLInputElement) {
-      if (resultSync.operationMode === "manual") {
-        manualModeRadio.checked = true
-      }
-      else {
-        autoModeRadio.checked = true
-      }
-
-      autoModeRadio.addEventListener("change", function () {
-        chrome.storage.sync.set({ operationMode: "auto" }, function () { })
-      })
-      manualModeRadio.addEventListener("change", function () {
-        chrome.storage.sync.set({ operationMode: "manual" }, function () { })
-      })
-    }
-  })
 
   chrome.storage.sync.get(["hideCaptions", "geminiModel", "autoGenerateAtaAfterMeeting"], function (resultSyncUntyped) {
     const resultSync = /** @type {ResultSync} */ (resultSyncUntyped)
@@ -224,97 +171,5 @@ window.onload = function () {
         })
       })
     })
-  }
-
-  /**
-   * Syncs checkbox UI with actual background script registration status.
-   * Requests optional browser permissions directly inside the user-gesture event handler for Firefox compatibility.
-   * @param {HTMLInputElement} element
-   * @param {Platform} platform
-   */
-  function syncPlatformStatus(element, platform) {
-    /** @type {ExtensionMessage} */
-    const message = {
-      type: "get_platform_enablement_status",
-      platform: platform
-    }
-    chrome.runtime.sendMessage(message, (responseUntyped) => {
-      const response = /** @type {ExtensionResponse} */ (responseUntyped)
-      if (response && response.success) {
-        element.checked = response.message === "Enabled"
-      }
-    })
-
-    element.addEventListener("change", () => {
-      const isEnabling = element.checked
-
-      /** @param {boolean} enabled */
-      const persistPlatformChoice = (enabled) => {
-        switch (platform) {
-          case "google_meet":
-            chrome.storage.sync.set({ wantGoogleMeet: enabled }, function () { })
-            break
-          case "teams":
-            chrome.storage.sync.set({ wantTeams: enabled }, function () { })
-            break
-          case "zoom":
-            chrome.storage.sync.set({ wantZoom: enabled }, function () { })
-            break
-          default:
-            break
-        }
-      }
-
-      const sendToggleMessage = (/** @type {"enable_platform" | "disable_platform"} */ type) => {
-        /** @type {ExtensionMessage} */
-        const toggleMsg = { type, platform }
-        chrome.runtime.sendMessage(toggleMsg, (responseUntyped) => {
-          const response = /** @type {ExtensionResponse} */ (responseUntyped)
-          if (!response || !response.success) {
-            element.checked = !isEnabling
-            persistPlatformChoice(!isEnabling)
-            console.error(`Failed to toggle ${platform}:`, response?.message)
-          }
-        })
-      }
-
-      if (isEnabling && chrome.permissions && typeof chrome.permissions.request === "function") {
-        // Call permissions.request directly in user gesture for Firefox MV3 compatibility
-        const origins = PLATFORM_PERMISSION_ORIGINS[platform] || []
-        chrome.permissions.request({
-          origins,
-          permissions: ["notifications"]
-        })
-          .then((granted) => {
-            if (!granted) {
-              element.checked = false
-              persistPlatformChoice(false)
-              return
-            }
-            persistPlatformChoice(true)
-            sendToggleMessage("enable_platform")
-          })
-          .catch((err) => {
-            console.error(`Permission request failed for ${platform}:`, err)
-            element.checked = false
-            persistPlatformChoice(false)
-          })
-        return
-      }
-
-      persistPlatformChoice(isEnabling)
-      sendToggleMessage(isEnabling ? "enable_platform" : "disable_platform")
-    })
-  }
-
-  // Initialize Toggles
-  if (googleMeetToggle) {
-    syncPlatformStatus(googleMeetToggle, "google_meet")
-  }
-  if (teamsToggle) {
-    syncPlatformStatus(teamsToggle, "teams")
-  }
-  if (zoomToggle) {
-    syncPlatformStatus(zoomToggle, "zoom")
   }
 }

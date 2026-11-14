@@ -20,7 +20,6 @@
     "unlimitedStorage",
     "downloads",
     "scripting",
-    "declarativeNetRequestWithHostAccess",
     "alarms"
   ],
   "host_permissions": [
@@ -30,33 +29,11 @@
   "optional_permissions": [
     "notifications"
   ],
-  "optional_host_permissions": [
-    "*://*/*",
-    "https://*.zoom.us/*",
-    "https://teams.live.com/*",
-    "https://teams.microsoft.com/*",
-    "https://teams.cloud.microsoft/*",
-    "https://teams.microsoft.com.mcas.ms/*",
-    "https://teams.cloud.microsoft.mcas.ms/*",
-    "https://teams.microsoft.com.mcas-gov.us/*",
-    "https://teams.cloud.microsoft.mcas-gov.us/*",
-    "https://teams.microsoft.com.mcas-gov.ms/*",
-    "https://teams.cloud.microsoft.mcas-gov.ms/*"
-  ],
   "background": {
     "scripts": [
       "background-script/index.js"
     ],
     "type": "module"
-  },
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "ruleset_1",
-        "enabled": false,
-        "path": "rules.json"
-      }
-    ]
   },
   "web_accessible_resources": [
     {
