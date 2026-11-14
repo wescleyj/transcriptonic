@@ -103,6 +103,7 @@ describe("Cross-browser packaging & manifests", () => {
         const sourceManifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, "manifest.json"), "utf8"))
         assert.equal(sourceManifest.side_panel, undefined)
         assert.equal(sourceManifest.permissions.includes("sidePanel"), false)
+        assert.ok(sourceManifest.permissions.includes("unlimitedStorage"))
         assert.deepEqual(sourceManifest.background.scripts, ["background-script/index.js"])
         assert.equal(sourceManifest.background.service_worker, undefined)
 
@@ -113,6 +114,7 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(chromeManifest.sidebar_action, undefined)
         assert.equal(chromeManifest.browser_specific_settings, undefined)
         assert.ok(chromeManifest.permissions.includes("sidePanel"))
+        assert.ok(chromeManifest.permissions.includes("unlimitedStorage"))
         assert.ok(chromeManifest.host_permissions.includes("https://generativelanguage.googleapis.com/*"))
         assert.ok(chromeManifest.optional_host_permissions.includes("https://*.zoom.us/*"))
         assert.ok(chromeManifest.web_accessible_resources?.[0]?.resources?.includes("templates/*"))
@@ -124,7 +126,11 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(firefoxManifest.sidebar_action?.default_panel, "side-panel/index.html")
         assert.ok(firefoxManifest.browser_specific_settings?.gecko?.id)
         assert.equal(firefoxManifest.permissions.includes("sidePanel"), false)
+        assert.ok(firefoxManifest.permissions.includes("unlimitedStorage"))
         assert.ok(firefoxManifest.host_permissions.includes("https://generativelanguage.googleapis.com/*"))
+
+        const meetingsScriptSrc = fs.readFileSync(path.join(EXTENSION_DIR, "background-script/meetings.js"), "utf8")
+        assert.equal(meetingsScriptSrc.includes("meetings.slice(-10)"), false)
 
         const chromeEntries = await readZipEntries(new Uint8Array(fs.readFileSync(chromeZipPath)))
         const firefoxEntries = await readZipEntries(new Uint8Array(fs.readFileSync(firefoxZipPath)))
@@ -605,8 +611,8 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.ok(extracted.includes("AUSENTES"))
         assert.ok(extracted.includes("SUBDIRETORIA"))
         assert.ok(extracted.includes("I. Pauta da Reunião"))
-        assert.ok(extracted.includes("Ass"))
-        assert.ok(extracted.includes("Diretor:"))
+        assert.equal(/^Ass$/m.test(extracted), false)
+        assert.equal(extracted.includes("Diretor:"), false)
     })
 
     it("generates valid DOCX cloned from MODELO ATA.docx preserving fonts, styles, tables 1-3, transcript link, and XML escaping", async () => {
@@ -716,8 +722,9 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.ok(docXml.includes(`<w:bookmarkStart w:id="1" w:name="TranscricaoCompleta"/>`))
         assert.ok(docXml.includes("ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO"))
         assert.ok(docXml.includes("Bom dia! Vamos alinhar o cronograma."))
-        assert.ok(docXml.includes("Ass"))
-        assert.ok(docXml.includes("Diretor:"))
+        assert.equal(docXml.includes("<w:t>Ass</w:t>"), false)
+        assert.equal(docXml.includes("Diretor:"), false)
+        assert.equal(docXml.match(/<w:br w:type="page"\/>/g)?.length, 2)
         assert.ok(relsXml.includes(`Target="https://drive.google.com/file/d/ata-transcript-123/view"`))
         assert.ok(relsXml.includes(`Target="styles.xml"`))
 
@@ -796,6 +803,9 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.equal(html.includes(`href="javascript:`), false)
         assert.equal(html.includes("moz-extension://"), false)
         assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"))
+        assert.equal(html.includes("Diretor:"), false)
+        assert.equal(html.includes(`class="signature"`), false)
+        assert.ok(html.includes(`class="blank-page-spacer"`))
         assert.ok(html.includes(`href="#transcricao-completa"`))
         assert.ok(html.includes("ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO (1 fala registrada)"))
         assert.ok(html.includes("Primeira frase. Segunda frase."))

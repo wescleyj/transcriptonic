@@ -17,6 +17,7 @@
   },
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "downloads",
     "scripting",
     "declarativeNetRequestWithHostAccess",

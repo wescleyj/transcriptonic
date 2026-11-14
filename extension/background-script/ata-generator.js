@@ -43,8 +43,8 @@ const DEFAULT_TEMPLATE_SPEC = `Estrutura padrão da ATA DE REUNIÃO (baseada no 
 - "1. OBJETIVO DA REUNIÃO": parágrafo objetivo resumindo o propósito da reunião
 - "2. PAUTA E PONTOS DISCUTIDOS": subseções numeradas (2.1., 2.2., ... em #047176) com tópicos em marcador sólido (● Título: descrição) e subtópicos (○ detalhe) + tabela-resumo opcional ("Aspecto" #004AAD | "Detalhes da Execução" #D4F8F8) quando houver escopo/cronograma/investimento estruturado
 - "3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS": lista numerada por responsável (1. Nome:) com ações em sub-marcador (○ ação)
-- "4. ACESSO À TRANSCRIÇÃO COMPLETA": referência e link direto para a transcrição integral
-- Assinatura final: "Ass" e "Diretor:" (azul #004AAD, negrito)`
+- "4. ACESSO À TRANSCRIÇÃO COMPLETA": referência e link interno para o Anexo I ao final do documento
+- Ao final da Ata (inserido automaticamente via código após 1 página em branco): "ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO"`
 
 /** @type {Uint32Array | null} */
 let crc32Table = null
@@ -1424,20 +1424,11 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
     ${transcriptLinkParagraph}
 
     <w:p>
-      <w:pPr><w:spacing w:before="280" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
-      <w:r>
-        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
-        <w:t>Ass</w:t>
-      </w:r>
+      <w:r><w:br w:type="page"/></w:r>
     </w:p>
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="120" w:line="300" w:lineRule="auto"/></w:pPr>
-      <w:r>
-        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
-        <w:t>Diretor:</w:t>
-      </w:r>
+      <w:pPr><w:spacing w:before="240" w:after="240"/></w:pPr>
     </w:p>
-
     <w:p>
       <w:r><w:br w:type="page"/></w:r>
     </w:p>
@@ -1726,15 +1717,14 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
     ul.sub-list { list-style-type: circle; padding-left: 24px; margin: 4px 0; }
     ol.encaminhamentos-list { padding-left: 22px; margin: 8px 0; }
     li { margin-bottom: 4px; }
-    .signature { margin-top: 32px; color: #004AAD; font-weight: 700; font-size: 15px; }
-    .signature div { margin-bottom: 6px; }
+    .blank-page-spacer { display: none; }
     details.transcript-annex { margin-top: 28px; border-top: 2px solid #047176; padding-top: 12px; }
     details.transcript-annex summary { color: #004AAD; font-weight: 700; font-size: 14px; cursor: pointer; margin-bottom: 10px; }
     .annex-body { font-size: 12.5px; line-height: 1.5; margin-top: 8px; }
     .annex-entry { margin-bottom: 6px; }
     .annex-time { color: #555555; }
     .annex-speaker { color: #047176; }
-    @media print { .no-print { display: none; } body { padding: 0; } details.transcript-annex { page-break-before: always; } }
+    @media print { .no-print { display: none; } body { padding: 0; } .blank-page-spacer { page-break-before: always; page-break-after: always; height: 1px; display: block; } details.transcript-annex { page-break-before: always; } }
   </style>
 </head>
 <body>
@@ -1782,12 +1772,9 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
   <p><a href="#transcricao-completa" onclick="var d=document.getElementById('transcricao-completa');if(d)d.open=true;">📄 Consultar Transcrição Completa da Reunião (Anexo I)</a></p>
   ${transcriptLinkHtml}
 
-  <div class="signature">
-    <div>Ass</div>
-    <div>Diretor:</div>
-  </div>
+  <div class="blank-page-spacer" aria-hidden="true"></div>
 
-  <details id="transcricao-completa" class="transcript-annex">
+  <details open id="transcricao-completa" class="transcript-annex">
     <summary>ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO (${escapeHtml(summaryLabel)})</summary>
     <div class="annex-body">
       ${annexBodyHtml}

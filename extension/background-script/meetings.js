@@ -65,7 +65,7 @@ export function processLastMeeting() {
 /**
  * @throws error codes: 013, 014
  */
-// Process transcript and chat messages of the meeting that just ended from storage, format them into strings, and save as a new entry in meetings (keeping last 10)
+// Process transcript and chat messages of the meeting that just ended from storage, format them into strings, and save as a new entry in meetings history
 export function pickupLastMeetingFromStorage() {
     return new Promise((resolve, reject) => {
         chrome.storage.local.get([
@@ -97,12 +97,7 @@ export function pickupLastMeetingFromStorage() {
                         let meetings = resultLocal.meetings || []
                         meetings.push(newMeetingEntry)
 
-                        // Keep only last 10 transcripts
-                        if (meetings.length > 10) {
-                            meetings = meetings.slice(-10)
-                        }
-
-                        // Save updated recent transcripts
+                        // Save full local meeting history without arbitrary 10-meeting truncation
                         chrome.storage.local.set({ meetings: meetings }, function () {
                             console.log("Last meeting picked up")
                             resolve("Last meeting picked up")
