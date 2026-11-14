@@ -1,4 +1,26 @@
-import { ALARM_NAME, INTERVAL_IN_MINUTES, TIMEFORMAT } from "./config.js"
+/** @type {Intl.DateTimeFormatOptions} */
+export const TIMEFORMAT = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+}
+
+/** @type {Object<string, { id: string, js: string[], matches: string[], excludeMatches: string[], permissions: chrome.runtime.ManifestPermissions[] }>} */
+export const PLATFORM_CONFIGS = {
+    "google_meet": {
+        id: "content-google-meet",
+        js: [
+            "content-scripts/meet-utils.js",
+            "content-scripts/meet.js"
+        ],
+        matches: ["https://meet.google.com/*"],
+        excludeMatches: ["https://meet.google.com/", "https://meet.google.com/landing"],
+        permissions: ["notifications"]
+    }
+}
 
 const INVALID_FILENAME_REGEX = /[:?"*<>|~/\\\u{1}-\u{1f}\u{7f}\u{80}-\u{9f}\p{Cf}\p{Cn}]|^[.\u{0}\p{Zl}\p{Zp}\p{Zs}]|[.\u{0}\p{Zl}\p{Zp}\p{Zs}]$|^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/gui
 
@@ -46,19 +68,6 @@ export function getTranscriptFileName(meeting) {
     const formattedTimestamp = getFormattedFileTimestamp(meeting)
     const prefix = meeting?.meetingSoftware ? `${meeting.meetingSoftware} transcript` : "Transcript"
     return `TranscripTonic/${prefix}-${sanitisedMeetingTitle} at ${formattedTimestamp}.txt`
-}
-
-export function checkAndCreateAlarm() {
-    chrome.alarms.get(ALARM_NAME, (alarm) => {
-        if (!alarm) {
-            chrome.alarms.create(ALARM_NAME, {
-                periodInMinutes: INTERVAL_IN_MINUTES
-            })
-            console.log(`Alarm "${ALARM_NAME}" created successfully.`)
-        } else {
-            console.log(`Alarm "${ALARM_NAME}" already exists. Next scheduled run:`, new Date(alarm.scheduledTime))
-        }
-    })
 }
 
 /**
@@ -110,27 +119,6 @@ export function clearTabIdAndApplyUpdate() {
                 })
             }
         })
-    })
-}
-
-/**
- * Opens the extension popup programmatically.
- */
-export function openExtensionPopup() {
-    return new Promise((resolve, reject) => {
-        if (!chrome.action || typeof chrome.action.openPopup !== "function") {
-            reject("Popup API unavailable")
-            return
-        }
-        chrome.action.openPopup()
-            .then(() => {
-                console.log("Popup opened successfully")
-                resolve("Popup opened")
-            })
-            .catch((error) => {
-                console.error("Failed to open popup:", error)
-                reject("Failed to open popup")
-            })
     })
 }
 

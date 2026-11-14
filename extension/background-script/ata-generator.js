@@ -505,7 +505,7 @@ async function fetchBundledAssetBytes(assetPath, fetchFn) {
 }
 
 /**
- * Loads the active Ata template (custom uploaded template from storage or bundled MODELO ATA.docx / modelo-ata.pdf).
+ * Loads the active Ata template (custom uploaded template from storage or bundled MODELO ATA.docx).
  * @param {{ fetchImpl?: typeof fetch }} [deps]
  * @returns {Promise<{ source: string, fileName: string, mimeType: string, base64Data?: string, extractedText?: string, docxBytes?: Uint8Array | null }>}
  */
@@ -566,17 +566,6 @@ export async function loadAtaTemplate(deps = {}) {
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             extractedText,
             docxBytes: defaultDocxBytes
-        }
-    }
-
-    const defaultPdfBytes = await fetchBundledAssetBytes("templates/modelo-ata.pdf", fetchFn)
-    if (defaultPdfBytes) {
-        return {
-            source: "default",
-            fileName: "modelo-ata.pdf",
-            mimeType: "application/pdf",
-            base64Data: bytesToBase64(defaultPdfBytes),
-            docxBytes: null
         }
     }
 
@@ -852,7 +841,7 @@ export async function callGeminiForAta({
         : (meeting?.meetingSoftware || "Meet")
 
     const promptText = `Você é um(a) secretário(a) executivo(a) especialista em redigir Atas de Reunião em Português do Brasil.
-Analise a transcrição e mensagens de chat da reunião abaixo e gere uma Ata de Reunião completa, clara, profissional e fiel à estrutura e estilo do modelo fornecido (${template?.fileName || "modelo-ata.pdf"}).
+Analise a transcrição e mensagens de chat da reunião abaixo e gere uma Ata de Reunião completa, clara, profissional e fiel à estrutura e estilo do modelo fornecido (${template?.fileName || "MODELO ATA.docx"}).
 
 DADOS DA REUNIÃO:
 - Título capturado: ${meeting?.meetingTitle || meeting?.title || "Reunião"}

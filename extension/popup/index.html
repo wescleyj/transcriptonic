@@ -11,17 +11,13 @@
     :root {
       --cj-navy: #0c152d;
       --cj-surface: #132042;
-      --cj-surface-alt: #16254c;
       --cj-border: #233564;
-      --cj-border-strong: #2f4682;
       --cj-yellow: #fac835;
       --cj-yellow-hover: #ffd65c;
       --cj-mint: #95eed8;
-      --cj-coral: #f69191;
       --cj-white: #ffffff;
       --cj-muted: #b8c2d9;
       --cj-subtle: #8fa0c4;
-      --cj-grey: #515151;
     }
 
     * {
@@ -29,9 +25,9 @@
     }
 
     body {
-      width: 436px;
+      width: 368px;
       margin: 0;
-      padding: 1rem 1.1rem;
+      padding: 1rem;
       background-color: var(--cj-navy);
       background-image:
         linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
@@ -48,9 +44,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.85rem;
-      padding: 0.85rem 1rem;
-      margin-bottom: 0.9rem;
+      gap: 0.75rem;
+      padding: 0.8rem 0.95rem;
+      margin-bottom: 0.85rem;
       background: var(--cj-surface);
       border: 1px solid var(--cj-border);
       border-left: 3px solid var(--cj-yellow);
@@ -73,13 +69,13 @@
     .brand-title-row {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.2rem;
+      gap: 0.45rem;
+      margin-bottom: 0.18rem;
     }
 
     h1.brand-wordmark {
       margin: 0;
-      font-size: 1.55rem;
+      font-size: 1.45rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       line-height: 1.1;
@@ -94,7 +90,7 @@
       display: inline-block;
       padding: 0.12rem 0.42rem;
       font-family: "JetBrains Mono", monospace;
-      font-size: 0.65rem;
+      font-size: 0.64rem;
       font-weight: 600;
       letter-spacing: 0.06em;
       color: var(--cj-mint);
@@ -106,15 +102,14 @@
     .brand-subtitle {
       margin: 0;
       font-family: "JetBrains Mono", monospace;
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       color: var(--cj-mint);
-      opacity: 0.92;
     }
 
     .mascot-frame {
       flex-shrink: 0;
-      width: 48px;
-      height: 48px;
+      width: 44px;
+      height: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -132,7 +127,7 @@
     }
 
     .card {
-      padding: 0.9rem 1rem;
+      padding: 0.85rem 0.95rem;
       background: var(--cj-surface);
       border: 1px solid var(--cj-border);
       border-radius: 8px;
@@ -140,201 +135,91 @@
       text-align: left;
     }
 
-    .card-title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 0.5rem;
-      padding-left: 0.55rem;
-      border-left: 3px solid var(--cj-yellow);
-      margin-bottom: 0.65rem;
-    }
-
-    .card-title {
-      font-weight: 600;
-      font-size: 0.83rem;
-      color: var(--cj-white);
-      white-space: nowrap;
-    }
-
-    #gemini-key-status {
-      white-space: nowrap;
-      font-size: 0.72rem;
-    }
-
     .checkbox-group {
       display: flex;
-      gap: 0.55rem;
-      align-items: center;
+      gap: 0.6rem;
+      align-items: flex-start;
     }
 
     .checkbox-group label {
       margin: 0;
-      font-weight: 500;
+      font-weight: 600;
       color: var(--cj-white);
       cursor: pointer;
     }
 
-    .sub-text {
+    .helper-text {
+      margin: 0.5rem 0 0;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--cj-border);
       color: var(--cj-muted);
-      font-size: 0.76rem;
+      font-size: 0.74rem;
     }
 
     input[type="checkbox"] {
       accent-color: var(--cj-yellow);
       width: 17px;
       height: 17px;
-      margin: 0;
+      margin: 0.12rem 0 0;
       cursor: pointer;
       flex-shrink: 0;
     }
 
-    input[type="password"],
-    input[type="text"],
-    select {
-      width: 100%;
-      padding: 0.48rem 0.65rem;
-      border: 1px solid var(--cj-border-strong);
-      border-radius: 6px;
-      background: var(--cj-navy);
-      color: var(--cj-white);
-      font-family: "Poppins", system-ui, -apple-system, sans-serif;
-      font-size: 0.8rem;
-      outline: none;
-      transition: border-color 0.15s ease;
-    }
-
-    input[type="password"]::placeholder,
-    input[type="text"]::placeholder {
-      color: var(--cj-subtle);
-    }
-
-    input[type="password"]:focus,
-    input[type="text"]:focus,
-    select:focus {
-      border-color: var(--cj-yellow);
-    }
-
-    select option {
-      background: var(--cj-navy);
-      color: var(--cj-white);
-    }
-
-    .gemini-row {
+    .btn-primary-link {
       display: flex;
+      align-items: center;
+      justify-content: center;
       gap: 0.45rem;
-      align-items: center;
+      width: 100%;
+      padding: 0.62rem 0.95rem;
+      margin-bottom: 0.75rem;
+      background: var(--cj-yellow);
+      color: var(--cj-navy);
+      border: 1px solid var(--cj-yellow);
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.84rem;
+      text-decoration: none;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
     }
 
-    .gemini-row input {
-      flex: 1;
+    .btn-primary-link:hover {
+      background: var(--cj-yellow-hover);
+      border-color: var(--cj-yellow-hover);
+      color: var(--cj-navy);
+      text-decoration: none;
     }
 
-    .gemini-field {
-      margin-top: 0.75rem;
-    }
-
-    .field-label {
-      display: block;
-      margin-bottom: 0.3rem;
-      font-weight: 500;
-      font-size: 0.78rem;
-      color: var(--cj-muted);
-    }
-
-    .gemini-actions {
+    .footer-bar {
       display: flex;
-      justify-content: space-between;
+      gap: 0.65rem;
       align-items: center;
-      gap: 0.75rem;
-      margin-top: 0.85rem;
-      padding-top: 0.75rem;
-      border-top: 1px solid var(--cj-border);
+      justify-content: space-between;
+      padding: 0.1rem 0.1rem 0;
     }
 
-    a {
+    .footer-link {
       color: var(--cj-mint);
       font-weight: 600;
+      font-size: 0.76rem;
       text-decoration: none;
       transition: color 0.15s ease;
     }
 
-    a:hover {
+    .footer-link:hover {
       color: var(--cj-yellow);
       text-decoration: underline;
       text-underline-offset: 3px;
     }
 
-    button {
-      font-family: "Poppins", system-ui, -apple-system, sans-serif;
-      font-size: 0.8rem;
-      cursor: pointer;
-      border-radius: 6px;
-      transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-    }
-
-    .btn-primary {
-      background: var(--cj-yellow);
-      color: var(--cj-navy);
-      border: 1px solid var(--cj-yellow);
-      padding: 0.48rem 0.85rem;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .btn-primary:hover:not(:disabled) {
-      background: var(--cj-yellow-hover);
-      border-color: var(--cj-yellow-hover);
-    }
-
-    .btn-primary:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-    }
-
-    .btn-outline {
-      background: transparent;
-      color: var(--cj-coral);
-      border: 1px solid rgba(246, 145, 145, 0.55);
-      padding: 0.45rem 0.7rem;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-
-    .btn-outline:hover:not(:disabled) {
-      background: rgba(246, 145, 145, 0.12);
-      border-color: var(--cj-coral);
-    }
-
-    .status-ok {
-      color: var(--cj-mint);
-      font-weight: 600;
-    }
-
-    .status-err {
-      color: var(--cj-coral);
-      font-weight: 600;
-    }
-
-    .footer-bar {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.2rem 0.15rem 0;
-    }
-
     .footer-meta {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
       font-family: "JetBrains Mono", monospace;
-      font-size: 0.73rem;
+      font-size: 0.72rem;
       color: var(--cj-subtle);
     }
 
     .right-arrow {
-      font-size: 0.9em;
+      font-size: 0.95em;
     }
   </style>
 </head>
@@ -358,50 +243,16 @@
       <input type="checkbox" id="hide-captions" />
       <label for="hide-captions">Ocultar legendas na tela do Google Meet</label>
     </div>
+    <p class="helper-text">As transcrições das reuniões no Google Meet são capturadas automaticamente.</p>
   </section>
 
-  <section class="card" id="gemini-ata-card">
-    <div class="card-title-row">
-      <span class="card-title">Ata de Reunião (Gemini AI)</span>
-      <span id="gemini-key-status" class="sub-text">Chave não configurada</span>
-    </div>
-
-    <div class="gemini-row">
-      <input type="password" id="gemini-api-key" placeholder="Cole sua chave API do Google Gemini (AIza...)" autocomplete="off" />
-      <button type="button" id="save-gemini-key" class="btn-primary">Salvar</button>
-      <button type="button" id="clear-gemini-key" class="btn-outline" style="display: none;">Remover</button>
-    </div>
-
-    <div class="gemini-field">
-      <label class="field-label" for="gemini-model">Modelo Gemini</label>
-      <select id="gemini-model">
-        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (Mais econômico / recomendado)</option>
-        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Equilibrado)</option>
-        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-        <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite Preview</option>
-      </select>
-    </div>
-
-    <div class="checkbox-group gemini-field">
-      <input type="checkbox" id="auto-generate-ata" />
-      <label for="auto-generate-ata">Gerar ata automaticamente ao final da reunião</label>
-    </div>
-
-    <div class="gemini-actions">
-      <button type="button" id="generate-last-ata-btn" class="btn-primary">Gerar Ata da última reunião</button>
-      <a href="../meetings.html#ata-settings" target="_blank">Modelo &amp; Atas <span class="right-arrow">&rarr;</span></a>
-    </div>
-    <div id="ata-action-status" class="sub-text" style="margin-top: 0.55rem;"></div>
-  </section>
+  <a id="open-meetings-btn" class="btn-primary-link" href="../meetings.html" target="_blank">
+    Histórico de Atas &amp; Configurações <span class="right-arrow">&rarr;</span>
+  </a>
 
   <footer class="footer-bar">
-    <a href="../meetings.html" target="_blank">Histórico de reuniões <span class="right-arrow">&rarr;</span></a>
-    <div class="footer-meta">
-      <span id="version"></span>
-      <span>•</span>
-      <span>Commit Jr.</span>
-    </div>
+    <a class="footer-link" href="../meetings.html#ata-settings" target="_blank">Configurar Chave Gemini &amp; Modelo</a>
+    <span class="footer-meta">Commit Jr.</span>
   </footer>
 
   <script src="popup.js"></script>

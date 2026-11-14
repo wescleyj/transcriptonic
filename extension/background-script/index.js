@@ -1,19 +1,13 @@
-import { ALARM_NAME } from "./config.js"
 import { processLastMeeting, recoverLastMeeting } from "./meetings.js"
 import { downloadTranscript } from "./exporters.js"
 import { generateAtaAtIndex, downloadAtaAtIndex, resolveGeminiModel } from "./ata-generator.js"
 import {
-    getPermissionStatus,
-    requestPlatformPermission,
-    getContentScriptStatus,
     registerContentScript,
     deregisterContentScript,
     reRegisterContentScripts,
 } from "./platforms.js"
 import {
     clearTabIdAndApplyUpdate,
-    openExtensionPopup,
-    checkAndCreateAlarm,
     openSidePanel
 } from "./utils.js"
 
@@ -23,11 +17,6 @@ const ASYNC_RESPONSE_TYPES = new Set([
     "generate_ata_at_index",
     "download_ata_at_index",
     "recover_last_meeting",
-    "get_platform_enablement_status",
-    "get_platform_permission_status",
-    "enable_platform",
-    "disable_platform",
-    "open_popup",
     "open_side_panel"
 ])
 
@@ -167,106 +156,6 @@ chrome.runtime.onMessage.addListener(function (messageUnTyped, sender, sendRespo
             })
     }
 
-    if (message.type === "get_platform_enablement_status") {
-        /** @type {Platform | Platform[]} */
-        let platform = message.platform || "google_meet"
-
-        getContentScriptStatus(platform)
-            .then((status) => {
-                /** @type {ExtensionResponse} */
-                const response = {
-                    success: true,
-                    message: status
-                }
-                sendResponse(response)
-            })
-            .catch((error) => {
-                const parsedError = /** @type {ErrorObject} */ (error)
-                /** @type {ExtensionResponse} */
-                const response = { success: false, message: parsedError }
-                sendResponse(response)
-            })
-    }
-
-    if (message.type === "get_platform_permission_status") {
-        /** @type {Platform | Platform[]} */
-        let platform = message.platform || "google_meet"
-
-        getPermissionStatus(platform)
-            .then((status) => {
-                /** @type {ExtensionResponse} */
-                const response = {
-                    success: true,
-                    message: status
-                }
-                sendResponse(response)
-            })
-            .catch((error) => {
-                const parsedError = /** @type {ErrorObject} */ (error)
-                /** @type {ExtensionResponse} */
-                const response = { success: false, message: parsedError }
-                sendResponse(response)
-            })
-    }
-
-    if ((message.type === "enable_platform")) {
-        /** @type {Platform | Platform[]} */
-        let platform = message.platform || "google_meet"
-
-        requestPlatformPermission(platform).then(() => {
-            registerContentScript(platform).then((result) => {
-                /** @type {ExtensionResponse} */
-                const response = { success: true, message: result }
-                sendResponse(response)
-            }).catch((error) => {
-                const parsedError = /** @type {ErrorObject} */ (error)
-
-                /** @type {ExtensionResponse} */
-                const response = { success: false, message: parsedError }
-                sendResponse(response)
-            })
-        })
-            .catch((error) => {
-                const parsedError = /** @type {ErrorObject} */ (error)
-
-                /** @type {ExtensionResponse} */
-                const response = { success: false, message: parsedError }
-                sendResponse(response)
-            })
-    }
-
-    if (message.type === "disable_platform") {
-        /** @type {Platform | Platform[]} */
-        let platform = message.platform || "google_meet"
-
-        // To disable, we simply unregister the content scripts
-        deregisterContentScript(platform).then((result) => {
-            /** @type {ExtensionResponse} */
-            const response = { success: true, message: result }
-            sendResponse(response)
-        }).catch((error) => {
-            const parsedError = /** @type {ErrorObject} */ (error)
-
-            /** @type {ExtensionResponse} */
-            const response = { success: false, message: parsedError }
-            sendResponse(response)
-        })
-    }
-
-    if (message.type === "open_popup") {
-        openExtensionPopup().then((msg) => {
-            /** @type {ExtensionResponse} */
-            const response = { success: true, message: msg }
-            sendResponse(response)
-        }).catch((error) => {
-            const parsedError = /** @type {ErrorObject} */ (error)
-
-            /** @type {ExtensionResponse} */
-            const response = { success: false, message: parsedError }
-            sendResponse(response)
-        })
-    }
-
     if (message.type === "open_side_panel") {
         openSidePanel(sender?.tab?.id).then((msg) => {
             /** @type {ExtensionResponse} */
@@ -359,7 +248,7 @@ chrome.runtime?.onInstalled?.addListener(() => {
 
         chrome.storage.sync.set({
             autoDownloadFileAfterMeeting: resultSync.autoDownloadFileAfterMeeting === false ? false : true,
-            autoGenerateAtaAfterMeeting: resultSync.autoGenerateAtaAfterMeeting === true ? true : false,
+            autoGenerateAtaAfterMeeting: resultSync.autoGenerateAtaAfterMeeting === false ? false : true,
             geminiModel: resolveGeminiModel(resultSync.geminiModel),
             operationMode: "auto",
             hideCaptions: resultSync.hideCaptions === true ? true : false,
@@ -368,17 +257,9 @@ chrome.runtime?.onInstalled?.addListener(() => {
             // Re-register content scripts whenever extension is installed or updated, provided permissions are available.
             reRegisterContentScripts()
         })
-
-        checkAndCreateAlarm()
     })
 })
 
 chrome.runtime?.onStartup?.addListener(() => {
     reRegisterContentScripts()
-})
-
-chrome.alarms?.onAlarm?.addListener((alarm) => {
-    if (alarm.name === ALARM_NAME) {
-        console.log("Alarm triggered: Running daily check...")
-    }
 })

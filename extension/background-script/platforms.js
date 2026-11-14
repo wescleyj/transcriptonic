@@ -1,50 +1,6 @@
-import { PLATFORM_CONFIGS } from './config.js'
+import { PLATFORM_CONFIGS } from './utils.js'
 
 const OPTIONAL_PLATFORM_PERMISSIONS = new Set(["notifications"])
-
-/**
- * @param {string|string[]} platform
- */
-export function getPermissionStatus(platform) {
-    /**
-     * @param {string} p
-     * @returns {Promise<string>}
-     */
-    function fetchSinglePlatformStatus(p) {
-        return new Promise((resolve, reject) => {
-            const config = PLATFORM_CONFIGS[p]
-
-            if (!config) {
-                reject(`Invalid platform: ${p}`)
-                return
-            }
-
-            chrome.permissions.contains({
-                origins: config.matches,
-                permissions: config.permissions
-            }).then(function (hasPermission) {
-                if (hasPermission) {
-                    resolve("Enabled")
-                } else {
-                    resolve("Disabled")
-                }
-            }).catch((error) => {
-                reject(error)
-            })
-        })
-    }
-
-    if (Array.isArray(platform)) {
-        // Multi-platform path
-        return Promise.all(platform.map(function (p) {
-            return fetchSinglePlatformStatus(p)
-        }))
-    } else {
-        // Single platform path
-        return fetchSinglePlatformStatus(platform)
-    }
-}
-
 
 /**
  * @param {Platform|Platform[]} platform
@@ -81,52 +37,6 @@ export function requestPlatformPermission(platform) {
                 reject(`Could not get permissions for ${platforms.join(", ")}`)
             })
     })
-}
-
-/**
- * @param {Platform|Platform[]} platform
- */
-export function getContentScriptStatus(platform) {
-    /**
-    * @param {string} p
-    * @returns {Promise<string>}
-    */
-    function getSinglePlatformContentScriptStatus(p) {
-        return new Promise((resolve, reject) => {
-            const config = PLATFORM_CONFIGS[p]
-
-            if (!config) {
-                reject(`Invalid platform: ${p}`)
-                return
-            }
-
-            chrome.scripting
-                .getRegisteredContentScripts()
-                .then((scripts) => {
-                    const isRegistered = scripts.some(s => s.id === config.id)
-
-                    if (isRegistered) {
-                        resolve("Enabled")
-                    } else {
-                        resolve("Disabled")
-                    }
-                })
-                .catch((error) => {
-                    console.error(`Error fetching status for ${p}:`, error)
-                    reject(`Could not retrieve status for ${p}`)
-                })
-        })
-    }
-
-    if (Array.isArray(platform)) {
-        // Multi-platform path
-        return Promise.all(platform.map(function (p) {
-            return getSinglePlatformContentScriptStatus(p)
-        }))
-    } else {
-        // Single platform path
-        return getSinglePlatformContentScriptStatus(platform)
-    }
 }
 
 /**
@@ -265,19 +175,11 @@ export function deregisterContentScript(platform) {
 
 
 export function reRegisterContentScripts() {
-    chrome.storage.sync.get(["wantGoogleMeet"], function (resultSyncUntyped) {
-        const resultSync = /** @type {ResultSync} */ (resultSyncUntyped || {})
-
-        if (resultSync.wantGoogleMeet === false) {
-            return
-        }
-
-        registerContentScript(["google_meet"], false)
-            .then(() => {
-                console.log("Google Meet content script re-registered successfully.")
-            })
-            .catch((error) => {
-                console.log(error)
-            })
-    })
+    registerContentScript(["google_meet"], false)
+        .then(() => {
+            console.log("Google Meet content script re-registered successfully.")
+        })
+        .catch((error) => {
+            console.log(error)
+        })
 }

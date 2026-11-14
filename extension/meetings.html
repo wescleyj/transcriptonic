@@ -189,6 +189,20 @@
             border-color: var(--cj-yellow);
         }
 
+        .studio-link {
+            color: var(--cj-mint);
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        .studio-link:hover {
+            color: var(--cj-yellow);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+
         dialog {
             padding: 1.5rem 1.75rem;
             color: var(--cj-white);
@@ -758,7 +772,10 @@
                     </div>
 
                     <form id="gemini-config-form" class="form-field">
-                        <label for="gemini-api-key">Chave API do Google Gemini</label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <label for="gemini-api-key">Chave API do Google Gemini</label>
+                            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="studio-link">Obter chave gratuita no Google AI Studio &#8599;</a>
+                        </div>
                         <div class="input-group">
                             <input type="password" id="gemini-api-key" placeholder="AIza..." autocomplete="off" />
                             <button type="submit" id="save-gemini-key">Salvar</button>
@@ -792,7 +809,8 @@
                     </div>
 
                     <div class="form-field">
-                        <p style="margin-top: 0; color: var(--cj-muted);">Modelo ativo: <strong id="ata-template-status" style="color: var(--cj-white);">Padrão embutido (MODELO ATA.docx)</strong></p>
+                        <p style="margin-top: 0; margin-bottom: 0.5rem; color: var(--cj-muted);">Modelo ativo: <strong id="ata-template-status" style="color: var(--cj-white);">Padrão embutido (MODELO ATA.docx)</strong></p>
+                        <p class="sub-text" style="margin: 0; font-size: 0.8rem;">O padrão oficial da Commit Jr. já vem configurado e inclui o Anexo I automático com a transcrição completa ao final da Ata.</p>
                     </div>
 
                     <div class="form-field">

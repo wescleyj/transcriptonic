@@ -335,7 +335,7 @@ function initGeminiAndTemplateSettings() {
                 }
             }
             if (autoGenerateAtaCheckbox) {
-                autoGenerateAtaCheckbox.checked = resultSync.autoGenerateAtaAfterMeeting === true
+                autoGenerateAtaCheckbox.checked = resultSync.autoGenerateAtaAfterMeeting !== false
             }
         }
     )
@@ -834,7 +834,7 @@ function loadMeetings() {
                 document.querySelector("#show-all")?.setAttribute("style", "display: none")
             }
         } else {
-            meetingsTable.innerHTML = `<tr><td colspan="5">Sua próxima reunião aparecerá aqui.</td></tr>`
+            meetingsTable.innerHTML = `<tr><td colspan="5">Nenhuma reunião registrada ainda. Entre em uma chamada no Google Meet (a transcrição inicia automaticamente) e, ao encerrar, gere ou baixe sua Ata (.docx) aqui.</td></tr>`
         }
     })
 }

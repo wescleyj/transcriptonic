@@ -186,7 +186,7 @@ export function downloadTranscript(index) {
 
                 // Add branding
                 content += "\n\n---------------\n"
-                content += "Transcript saved using TranscripTonic extension (https://github.com/wescleyj/transcriptonic)"
+                content += "Transcrição salva pela extensão CommitJr Atas (https://github.com/wescleyj/transcriptonic)"
                 content += "\n---------------"
 
                 const blob = new Blob([content], { type: "text/plain;charset=utf-8" })

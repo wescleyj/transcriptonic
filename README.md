@@ -1,83 +1,67 @@
-# TranscripTonic
-Simple Google Meet transcripts. Private and open source. 
-> Teams and Zoom transcripts in beta. <a href="https://github.com/vivek-nexus/transcriptonic/wiki/Zoom-and-Teams-beta-testing" target="_blank">Learn
-          more</a>.
+# CommitJr Atas
 
-![marquee-large](/assets/marquee-large.png)
+Extensão para **Google Chrome** e **Mozilla Firefox** que captura automaticamente as transcrições e mensagens do chat no **Google Meet** e gera a **Ata de Reunião (.docx)** no padrão oficial da **Commit Jr.** com auxílio do **Google Gemini**.
 
-Extension status: 🟢 OPERATIONAL (v3.4.5)
+## Recursos principais
 
-<br />
-<br />
+- **Captura automática no Google Meet**: ao entrar em uma reunião, as legendas e o chat são gravados automaticamente em armazenamento local do navegador (sem servidores intermediários ou webhooks).
+- **Legendas discretas**: marque **Ocultar legendas na tela do Google Meet** no popup da extensão se não quiser ver as legendas nativas do Meet durante a chamada.
+- **Ata padronizada com IA (`MODELO ATA.docx`)**: sintetiza cliente/projeto, assunto resumido, participantes, pauta numerada, encaminhamentos, nome inteligente de arquivo (`ATA - DD-MM-YYYY - [Cliente -] Objetivo.docx`) e anexa automaticamente o **Anexo I** com a transcrição completa após uma página em branco.
+- **Privacidade local**: sua chave API do Google Gemini e todo o histórico de reuniões ficam salvos exclusivamente no navegador (`chrome.storage.local`), enviados apenas diretamente para `https://generativelanguage.googleapis.com` quando uma Ata é gerada.
 
+## Instalação rápida para membros da Commit Jr.
 
+Gere os pacotes prontos na pasta `dist/`:
 
-# Demo
-View video on [YouTube](https://www.youtube.com/watch?v=ARL6HbkakX4)
+```bash
+bash scripts/build-cross.sh
+```
 
-![demo](/assets/demo.gif)
+### Google Chrome / Brave / Microsoft Edge
+1. Acesse `chrome://extensions` e ative o **Modo do desenvolvedor** (Developer mode).
+2. Clique em **Carregar sem compactação** (Load unpacked) e selecione a pasta `dist/chrome/` (ou instale o pacote `dist/transcriptonic-chrome-v3.4.5.zip`).
 
+### Mozilla Firefox
+1. Acesse `about:debugging#/runtime/this-firefox`.
+2. Clique em **Carregar extensão temporária** e selecione `dist/firefox/manifest.json` (ou instale `dist/transcriptonic-firefox-v3.4.5.zip` em builds que aceitem XPI/ZIP locais).
 
-<br />
-<br />
+## Como configurar e gerar Atas
 
+1. Clique no ícone **CommitJr Atas** na barra do navegador e depois em **Histórico de Atas & Configurações**.
+2. Em **Configuração do Gemini**, clique em **Obter chave gratuita no Google AI Studio**, crie sua chave (`AIza...`) e salve-a no campo indicado.
+3. Escolha o modelo Gemini desejado (padrão recomendado: `Gemini 3.5 Flash-Lite`) e mantenha ativada a geração automática de Ata ao final da reunião.
+4. Participe normalmente da reunião no Google Meet. Ao encerrar a chamada (ou clicando em **Gerar Ata** no histórico), os arquivos `.txt` da transcrição e `.docx` da Ata serão salvos na sua pasta de downloads (`Downloads/TranscripTonic/`).
 
-# Installation
-<a href="https://chromewebstore.google.com/detail/ciepnfnceimjehngolkijpnbappkkiag" target="_blank">
-    <img src="https://developer.chrome.com/static/docs/webstore/branding/image/iNEddTyWiMfLSwFD6qGq.png" />
-</a>
+## Estrutura do projeto
 
-<br />
-<br />
+```text
+extension/
+├── manifest.json                 # Manifest MV3 base (adaptado pelo build para Chrome e Firefox)
+├── icon.png / icons/             # Ícone oficial e mascote Pull em SVG
+├── meetings.html / meetings.js   # Histórico completo, preview/PDF da Ata e configurações Gemini
+├── popup/                        # Popup minimalista (ocultar legendas + acesso às configurações)
+├── side-panel/                   # Painel lateral de transcrição ao vivo
+├── content-scripts/
+│   ├── meet-utils.js             # Helpers, FAB e captura de legendas/chat no Google Meet
+│   └── meet.js                   # Ponto de entrada no Google Meet
+├── background-script/
+│   ├── index.js                  # Roteamento de eventos e ciclo de vida da extensão
+│   ├── ata-generator.js          # Integração Gemini e geração do DOCX/HTML com Anexo I
+│   ├── exporters.js              # Download cross-browser (Chrome e Firefox)
+│   ├── meetings.js               # Persistência e recuperação do histórico de reuniões
+│   ├── platforms.js              # Registro dinâmico dos content scripts no Google Meet
+│   └── utils.js                  # Configurações do Google Meet, timestamps e side panel
+└── templates/
+    └── modelo-ata.docx           # Modelo oficial da Ata de Reunião da Commit Jr.
+scripts/
+└── build-cross.sh                # Empacota dist/chrome e dist/firefox (+ ZIPs)
+tests/
+└── extension.test.mjs            # Suíte de testes unitários e de empacotamento
+```
 
-# How to use TranscripTonic
-![screenshot-2](/assets/screenshot-2.png)
-TranscripTonic has two modes of operation.
+## Build e testes
 
-**In both modes, transcript will be downloaded as a text file at the end of each meeting.**
-
-- **Auto mode:** Automatically records transcripts for all meetings
-- **Manual mode:** Switch on TranscripTonic by clicking on captions icon in Google Meet (CC icon)
-
-
-<br />
-<br />
-
-# Integrating TranscripTonic with other tools using webhooks
-You can integrate TranscripTonic with any tool that accepts data from a webhook. Refer the "Set up webhooks" page in the extension for details about the webhook body.
-- [Google Docs integration guide](https://github.com/vivek-nexus/transcriptonic/wiki/Google-Docs-integration-guide?utm_source=readme)
-- [n8n integration guide](https://github.com/vivek-nexus/transcriptonic/wiki/n8n-integration-guide?utm_source=readme)
-
-<br />
-<br />
-
-# FAQs
-
-**1. Can I change the language of the transcript?**
-
-Yes. TranscripTonic picks up the output of Google Meet captions. Google Meet captions supports variety of languages that you can choose from. Click the settings icon when captions start showing and change the language.
-
-**2. I did not get any transcript at the end of the meeting.**
-
-This could happen when:
-1. New errors caused by Google Meet updates
-2. Any unexpected events like network drop, browser crashes etc.
-
-When this happens, it might be possible to recover the transcript, but recovery should be done before starting another meeting.
-- Open the extension and click on "last 10 meetings". Click on "Recover last meeting" button present after the table.
-- TranscripTonic will also attempt to auto-recover any missed transcripts, just before a new meeting starts.
-
-<br />
-<br />
-
-# Privacy policy
-TranscripTonic Chrome extension does not collect any information from users in any manner, except anonymous errors and transcript download timestamp. All processing/transcript storage happens within the user's Chrome browser and does not leave the device, unless you configure a webhook and choose to post data to your webhook URL.
-
-<br />
-<br />
-
-# Notice
-The transcript may not always be accurate and is only intended to aid in improving productivity. It is the responsibility of the user to ensure they comply with any applicable laws/rules.
-
-<br />
-<br />
+```bash
+bash scripts/build-cross.sh
+node --test tests/extension.test.mjs
+```

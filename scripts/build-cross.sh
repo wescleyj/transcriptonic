@@ -19,13 +19,13 @@ FIREFOX_ZIP="${DIST_DIR}/transcriptonic-firefox-v${VERSION}.zip"
 rm -rf "${CHROME_DIR}" "${FIREFOX_DIR}" "${CHROME_ZIP}" "${FIREFOX_ZIP}"
 mkdir -p "${CHROME_DIR}" "${FIREFOX_DIR}"
 
-# Copy all extension assets except browser-specific manifest templates
+# Copy all extension assets except source manifest template
 copy_assets() {
   local target_dir="$1"
   for item in "${EXT_DIR}"/*; do
     local base
     base="$(basename "${item}")"
-    if [[ "${base}" == "manifest-firefox.json" || "${base}" == "manifest.json" ]]; then
+    if [[ "${base}" == "manifest.json" ]]; then
       continue
     fi
     cp -a "${item}" "${target_dir}/"
@@ -56,7 +56,7 @@ fs.writeFileSync(dst, JSON.stringify(manifest, null, 2) + "\n", "utf8");
 ' "${EXT_DIR}/manifest.json" "${CHROME_DIR}/manifest.json"
 
 # Install Firefox MV3 manifest
-cp "${EXT_DIR}/manifest-firefox.json" "${FIREFOX_DIR}/manifest.json"
+cp "${EXT_DIR}/manifest.json" "${FIREFOX_DIR}/manifest.json"
 
 # Create ZIP packages (use zip if installed, otherwise Python zipfile)
 package_dir() {

@@ -1,3 +1,60 @@
+// === Global config & styles ===
+
+/** @type {ExtensionStatusJSON} */
+const extensionStatusJSON_bug = {
+    "status": 400,
+    "message": `<strong style="color: #f69191;">CommitJr Atas encontrou um erro inesperado</strong> <br /> Por favor, reporte em <a href="https://github.com/wescleyj/transcriptonic/issues" target="_blank" style="color: #fac835; text-decoration: underline;">GitHub Issues</a>.`
+}
+const reportErrorMessage = "Ocorreu um erro no CommitJr Atas. Reporte em https://github.com/wescleyj/transcriptonic/issues"
+
+
+/** @type {MutationObserverInit} */
+const mutationConfig = { childList: true, attributes: true, subtree: true, characterData: true }
+
+const LOGO_URL = (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.getURL === "function")
+    ? chrome.runtime.getURL("icon.png")
+    : ""
+const commonCSS = `background: rgba(12, 21, 45, 0.96); 
+    position: fixed;
+    left: 0; 
+    right: 0; 
+    margin-left: auto; 
+    margin-right: auto;
+    max-width: 780px;  
+    z-index: 1000; 
+    padding: 0.25rem 1.15rem;
+    border-radius: 10px; 
+    border: 1.5px solid #fac835;
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    gap: 14px;  
+    font-size: 0.95rem; 
+    line-height: 1.45; 
+    font-family: "Poppins", Roboto, Arial, sans-serif; 
+    box-shadow: rgba(0, 0, 0, 0.45) 0px 12px 32px 0px;`
+
+const NOTIFICATION_PLATFORM_CONFIGS = {
+    "google_meet": {
+        notificationText: `<strong style="color: #fac835;">CommitJr Atas ativo</strong> <br /> Não desative as legendas do Google Meet`
+    }
+}
+
+// === Google Meet DOM selectors ===
+
+const SELECTORS_GOOGLE_MEET = {
+    USER_NAME: ".awLEm",
+    MEETING_TITLE: ".u6vdEc",
+    GOOGLE_SYMBOLS: ".google-symbols",
+    TEXT_CALL_END: "call_end",
+    TEXT_CAPTIONS: ["closed_caption_off", "translate_cc"],
+    TEXT_CHAT: "chat",
+    TRANSCRIPT_REGION: 'div[role="region"][tabindex="0"]',
+    CHAT_LIVE_REGION: 'div[aria-live="polite"].Ge9Kpc'
+}
+
+// === Core content-script helpers & FAB ===
+
 /**
  * @description State Factory: Returns a pristine, isolated meeting state block.
  * @param {MeetingSoftware} meetingSoftware
@@ -530,4 +587,153 @@ function meetsMinVersion(oldVer, newVer) {
         if (a < b) return true
     }
     return true
+}
+
+// === Google Meet captions & notification helpers ===
+
+/**
+ * @description Returns all elements of the specified selector type and specified textContent. Return array contains the actual element as well as all the parents.
+ * @param {string} selector
+ * @param {string | RegExp} text
+ */
+function selectElements(selector, text) {
+    var elements = document.querySelectorAll(selector)
+    return Array.prototype.filter.call(elements, function (element) {
+        return RegExp(text).test(element.textContent)
+    })
+}
+
+/**
+   * @description Shows a responsive notification of specified type and message
+   * @param {ExtensionStatusJSON} extensionStatusJSON
+   */
+function showNotificationGoogleMeet(extensionStatusJSON) {
+    // Banner CSS
+    let html = document.querySelector("html")
+    let obj = document.createElement("div")
+    let logo = document.createElement("img")
+    let text = document.createElement("p")
+
+    logo.setAttribute(
+        "src",
+        LOGO_URL
+    )
+    logo.setAttribute("height", "32px")
+    logo.setAttribute("width", "32px")
+    logo.style.cssText = "border-radius: 4px"
+
+    // Remove banner after 5s
+    setTimeout(() => {
+        obj.style.display = "none"
+    }, 5000)
+
+    if (extensionStatusJSON.status === 200) {
+        obj.style.cssText = `color: #ffffff; top: 5%; ${commonCSS}`
+        text.innerHTML = extensionStatusJSON.message
+    }
+    else {
+        obj.style.cssText = `color: #f69191; top: 5%; ${commonCSS} border-color: #f69191;`
+        text.innerHTML = extensionStatusJSON.message
+    }
+
+    obj.prepend(text)
+    obj.prepend(logo)
+    if (html)
+        html.append(obj)
+}
+
+/**
+ * @description Grabs updated meeting title, if available
+ * @param {ContentScriptState} state
+ */
+function updateMeetingTitleGoogleMeet(state) {
+    waitForElement(SELECTORS_GOOGLE_MEET.MEETING_TITLE).then((element) => {
+        const meetingTitleElement = /** @type {HTMLDivElement} */ (element)
+        meetingTitleElement?.setAttribute("contenteditable", "true")
+        meetingTitleElement.title = "Editar título da reunião para CommitJr Atas"
+        meetingTitleElement.style.cssText = `text-decoration: underline #fac835; text-underline-offset: 4px;`
+
+        meetingTitleElement?.addEventListener("input", handleMeetingTitleElementChange)
+
+        // Pick up meeting name after a delay, since Google meet updates meeting name after a delay
+        setTimeout(() => {
+            handleMeetingTitleElementChange()
+            if (location.pathname === `/${meetingTitleElement.innerText}`) {
+                showNotificationGoogleMeet({ status: 200, message: `<strong style="color: #fac835;">Deseja nomear esta reunião?</strong><br/>Edite o texto sublinhado no canto inferior esquerdo` })
+            }
+        }, 7000)
+
+        function handleMeetingTitleElementChange() {
+            state.meetingTitle = meetingTitleElement.innerText
+            overWriteChromeStorage(state, ["meetingTitle"], false)
+        }
+    })
+}
+
+/**
+ * @description Attempt to get username before meeting starts. Abort interval if valid username is found or if meeting starts and default to "You"
+ * @param {ContentScriptState} state
+ */
+function captureUserName(state) {
+    waitForElement(SELECTORS_GOOGLE_MEET.USER_NAME).then(() => {
+        // Poll the element until the textContent loads from network or until meeting starts
+        const captureUserNameInterval = setInterval(() => {
+            if (!state.hasMeetingStarted) {
+                const capturedUserName = document.querySelector(SELECTORS_GOOGLE_MEET.USER_NAME)?.textContent
+                if (capturedUserName) {
+                    state.userName = capturedUserName
+                    clearInterval(captureUserNameInterval)
+                }
+            }
+            else {
+                clearInterval(captureUserNameInterval)
+            }
+        }, 100)
+    })
+}
+
+/**
+ * @description Pushes object to array only if it doesn't already exist.
+ * @param {ContentScriptState} state
+ * @param {ChatMessage} chatBlock
+ */
+function pushUniqueChatBlock(state, chatBlock) {
+    const isExisting = state.chatMessages.some(item =>
+        (item.personName === chatBlock.personName) &&
+        (item.chatMessageText === chatBlock.chatMessageText)
+    )
+    if (!isExisting) {
+        console.log(chatBlock)
+        state.chatMessages.push(chatBlock)
+        overWriteChromeStorage(state, ["chatMessages"], false)
+    }
+}
+
+/**
+ * @description Returns the pressed state of the captions button: "true", "false", or null if the button has no aria-pressed attribute
+ * @returns {string | null}
+ */
+function getCaptionsPressedStateGoogleMeet() {
+    const captionsIcon = Array.from(document.querySelectorAll(SELECTORS_GOOGLE_MEET.GOOGLE_SYMBOLS))
+        .find(element => SELECTORS_GOOGLE_MEET.TEXT_CAPTIONS.includes(element.textContent ?? ""))
+    return captionsIcon?.closest("button")?.getAttribute("aria-pressed") ?? null
+}
+
+/**
+ * @description Turns on captions using the "c" keyboard shortcut. Meet may not have its shortcut handler ready when the captions icon first appears, so the first keypress can be silently dropped. Verify via aria-pressed and retry. Never sends "c" when captions are already on, since the shortcut toggles them.
+ */
+async function turnOnCaptionsGoogleMeet() {
+    const maxAttempts = 10
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const pressedState = getCaptionsPressedStateGoogleMeet()
+
+        // Captions are on ("true"), or state cannot be verified (null) -> do not risk toggling
+        if ((pressedState === "true") || (pressedState === null)) {
+            return
+        }
+        dispatchKeyboardShortcut("c", "KeyC", { bubbles: true })
+
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+    console.error("Could not turn on captions")
 }

@@ -134,6 +134,9 @@ describe("Cross-browser packaging & manifests", () => {
         assert.equal(firefoxManifest.sidebar_action?.default_title, "CommitJr Atas")
         assert.ok(firefoxManifest.browser_specific_settings?.gecko?.id)
         assert.equal(firefoxManifest.permissions.includes("sidePanel"), false)
+        assert.equal(firefoxManifest.permissions.includes("alarms"), false)
+        assert.equal(chromeManifest.permissions.includes("alarms"), false)
+        assert.equal(sourceManifest.permissions.includes("alarms"), false)
         assert.ok(firefoxManifest.permissions.includes("unlimitedStorage"))
         assert.ok(firefoxManifest.host_permissions.includes("https://generativelanguage.googleapis.com/*"))
         assert.equal(firefoxManifest.optional_host_permissions, undefined)
@@ -148,10 +151,11 @@ describe("Cross-browser packaging & manifests", () => {
             "manifest.json",
             "background-script/index.js",
             "background-script/ata-generator.js",
+            "content-scripts/meet-utils.js",
+            "content-scripts/meet.js",
             "meetings.html",
             "meetings.js",
             "icons/pull-mascot.svg",
-            "templates/modelo-ata.pdf",
             "templates/modelo-ata.docx"
         ]) {
             assert.ok(chromeEntries.has(required), `Chrome zip missing ${required}`)
@@ -160,12 +164,29 @@ describe("Cross-browser packaging & manifests", () => {
 
         for (const removedAsset of [
             "rules.json",
+            "manifest-firefox.json",
+            "background-script/config.js",
+            "content-scripts/common-config.js",
+            "content-scripts/common-utils.js",
+            "content-scripts/google-meet/index.js",
             "content-scripts/teams/index.js",
             "content-scripts/zoom/index.js",
-            "icons/webhook.svg"
+            "icons/webhook.svg",
+            "templates/modelo-ata.pdf"
         ]) {
             assert.equal(chromeEntries.has(removedAsset), false, `Chrome zip should not contain ${removedAsset}`)
             assert.equal(firefoxEntries.has(removedAsset), false, `Firefox zip should not contain ${removedAsset}`)
+        }
+
+        for (const removedPath of [
+            path.join(ROOT_DIR, "assets"),
+            path.join(ROOT_DIR, "extension-unpacked.zip"),
+            path.join(EXTENSION_DIR, "manifest-firefox.json"),
+            path.join(EXTENSION_DIR, "templates/modelo-ata.pdf"),
+            path.join(EXTENSION_DIR, "background-script/config.js"),
+            path.join(EXTENSION_DIR, "content-scripts/google-meet")
+        ]) {
+            assert.equal(fs.existsSync(removedPath), false, `Obsolete path should not exist: ${removedPath}`)
         }
     })
 })
@@ -399,8 +420,7 @@ describe("Permission & FAB bug regressions", () => {
     })
 
     it("safely handles empty/undefined state in updateFabState without throwing", () => {
-        const commonConfigSrc = fs.readFileSync(path.join(EXTENSION_DIR, "content-scripts/common-config.js"), "utf8")
-        const commonUtilsSrc = fs.readFileSync(path.join(EXTENSION_DIR, "content-scripts/common-utils.js"), "utf8")
+        const meetUtilsSrc = fs.readFileSync(path.join(EXTENSION_DIR, "content-scripts/meet-utils.js"), "utf8")
 
         const elements = {
             "#fab-default-logo": { style: { display: "" } },
@@ -420,7 +440,7 @@ describe("Permission & FAB bug regressions", () => {
             console
         }
 
-        vm.runInNewContext(`${commonConfigSrc}\n${commonUtilsSrc}`, sandbox)
+        vm.runInNewContext(meetUtilsSrc, sandbox)
 
         assert.doesNotThrow(() => sandbox.updateFabState(undefined))
         assert.doesNotThrow(() => sandbox.updateFabState({ transcript: [] }))
@@ -978,13 +998,16 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
             }
         }
 
-        assert.ok(popupHtml.includes("#f69191"))
         assert.ok(meetingsHtml.includes("#f69191"))
+        assert.ok(meetingsHtml.includes("https://aistudio.google.com/apikey"))
 
-        for (const hook of ['id="hide-captions"', 'id="gemini-api-key"', 'id="gemini-model"', 'id="auto-generate-ata"', 'id="generate-last-ata-btn"']) {
-            assert.ok(popupHtml.includes(hook), `popup/index.html missing ${hook}`)
+        assert.ok(popupHtml.includes('id="hide-captions"'), "popup/index.html missing hide-captions")
+        assert.ok(popupHtml.includes("meetings.html"), "popup/index.html should link to meetings.html")
+        for (const removedFromPopup of ["v3.4.5", 'id="version"', 'id="gemini-api-key"', 'id="gemini-model"', 'id="auto-generate-ata"', 'id="generate-last-ata-btn"']) {
+            assert.equal(popupHtml.includes(removedFromPopup), false, `popup/index.html should not contain ${removedFromPopup}`)
         }
-        for (const hook of ['id="meetings-search"', 'id="recover-last-meeting"', 'id="meetings-table"', 'id="gemini-api-key"', 'id="ata-template-file"']) {
+
+        for (const hook of ['id="meetings-search"', 'id="recover-last-meeting"', 'id="meetings-table"', 'id="gemini-api-key"', 'id="gemini-model"', 'id="auto-generate-ata"', 'id="ata-template-file"']) {
             assert.ok(meetingsHtml.includes(hook), `meetings.html missing ${hook}`)
         }
         for (const hook of ['id="meeting-title"', 'id="transcript-container"']) {
