@@ -345,6 +345,49 @@ export function formatDateTimeBr(isoTimestamp) {
 }
 
 /**
+ * Formats transcript and chat counts with proper Portuguese singular/plural wording.
+ * @param {number} transcriptCount
+ * @param {number} chatCount
+ * @returns {string}
+ */
+export function formatTranscriptCountLabel(transcriptCount, chatCount) {
+    const tCount = Math.max(0, Number(transcriptCount) || 0)
+    const cCount = Math.max(0, Number(chatCount) || 0)
+    const falasPart = tCount === 1 ? "1 fala registrada" : `${tCount} falas registradas`
+    if (cCount > 0) {
+        const chatPart = cCount === 1 ? "1 mensagem no chat" : `${cCount} mensagens no chat`
+        return `${falasPart} e ${chatPart}`
+    }
+    return falasPart
+}
+
+/**
+ * Merges consecutive transcript blocks from the same speaker into concise turns.
+ * @param {TranscriptBlock[] | []} blocks
+ * @returns {Array<{ speaker: string, time: string, text: string }>}
+ */
+export function consolidateTranscriptBlocks(blocks) {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+        return []
+    }
+    /** @type {Array<{ speaker: string, time: string, text: string }>} */
+    const consolidated = []
+    for (const block of blocks) {
+        const speaker = String(block?.personName || "Participante").trim() || "Participante"
+        const text = String(block?.transcriptText || "").trim()
+        if (!text) continue
+        const time = formatDateTimeBr(block?.timestamp)
+        const prev = consolidated[consolidated.length - 1]
+        if (prev && prev.speaker === speaker) {
+            prev.text = `${prev.text} ${text}`
+        } else {
+            consolidated.push({ speaker, time, text })
+        }
+    }
+    return consolidated
+}
+
+/**
  * Extracts unique participant names observed in transcript and chat messages.
  * @param {Meeting} meeting
  * @returns {string[]}
@@ -720,7 +763,10 @@ export async function callGeminiForAta({
 
     const fetchFn = fetchImpl || fetch
     const chosenModel = resolveGeminiModel(model)
-    const transcriptText = getTranscriptString(meeting?.transcript || [])
+    const consolidatedTranscript = consolidateTranscriptBlocks(meeting?.transcript || [])
+    const transcriptText = consolidatedTranscript.length > 0
+        ? consolidatedTranscript.map(e => `[${e.time}] ${e.speaker}: ${e.text}`).join("\n")
+        : getTranscriptString(meeting?.transcript || [])
     const chatText = getChatMessagesString(meeting?.chatMessages || [])
 
     if (!transcriptText.trim() && !chatText.trim()) {
@@ -920,7 +966,7 @@ REGRAS DE PREENCHIMENTO:
  */
 function isSafeLinkUrl(url) {
     if (!url || typeof url !== "string") return false
-    return /^(https?:|chrome-extension:|moz-extension:)/i.test(url.trim())
+    return /^https?:\/\//i.test(url.trim())
 }
 
 /**
@@ -948,16 +994,28 @@ function injectTranscriptHyperlinkRel(relsXml, viewUrl) {
  * Builds the OpenXML Word (.docx) bytes matching MODELO ATA.docx layout, colors, and fonts.
  * When templateEntries (from readZipEntries) is provided, embedded fonts, theme, numbering, and styles are preserved.
  * @param {AtaData} ataData
- * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
+ * @param {{
+ *   externalUrl?: string,
+ *   viewUrl?: string,
+ *   transcriptFileName?: string,
+ *   transcriptCount?: number,
+ *   chatCount?: number,
+ *   transcriptEntries?: Array<{ speaker: string, time: string, text: string }>,
+ *   chatEntries?: Array<{ speaker: string, time: string, text: string }>
+ * }} [transcriptAccessInfo]
  * @param {Map<string, Uint8Array> | null} [templateEntries]
  * @returns {Uint8Array}
  */
 export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEntries = null) {
     const encoder = new TextEncoder()
-    const hasHyperlink = isSafeLinkUrl(transcriptAccessInfo.viewUrl)
-    const transcriptFileLabel = transcriptAccessInfo.transcriptFileName || "TranscripTonic/Transcript.txt"
-    const transcriptCount = transcriptAccessInfo.transcriptCount ?? 0
-    const chatCount = transcriptAccessInfo.chatCount ?? 0
+    const rawExternal = transcriptAccessInfo.externalUrl || transcriptAccessInfo.viewUrl || ""
+    const externalUrl = isSafeLinkUrl(rawExternal) ? rawExternal.trim() : ""
+    const hasHyperlink = Boolean(externalUrl)
+    const transcriptCount = transcriptAccessInfo.transcriptCount ?? (transcriptAccessInfo.transcriptEntries?.length ?? 0)
+    const chatCount = transcriptAccessInfo.chatCount ?? (transcriptAccessInfo.chatEntries?.length ?? 0)
+    const summaryLabel = formatTranscriptCountLabel(transcriptCount, chatCount)
+    const transcriptEntries = Array.isArray(transcriptAccessInfo.transcriptEntries) ? transcriptAccessInfo.transcriptEntries : []
+    const chatEntries = Array.isArray(transcriptAccessInfo.chatEntries) ? transcriptAccessInfo.chatEntries : []
 
     // Exact column widths from Table2 of MODELO ATA.docx (sum = 10632 dxa)
     const colWidths = [1586, 1731, 2018, 1775, 3522]
@@ -1156,16 +1214,36 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
     const transcriptLinkParagraph = hasHyperlink
         ? `
     <w:p>
-      <w:pPr><w:spacing w:before="40" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
-      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">Link direto na extensão: </w:t></w:r>
+      <w:pPr><w:spacing w:before="20" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">Link externo da transcrição: </w:t></w:r>
       <w:hyperlink r:id="rIdTranscript" w:history="1">
         <w:r>
           <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="004aad"/><w:u w:val="single"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-          <w:t>${escapeXml(transcriptAccessInfo.viewUrl)}</w:t>
+          <w:t>${escapeXml(externalUrl)}</w:t>
         </w:r>
       </w:hyperlink>
     </w:p>`
         : ""
+
+    const formatAnnexEntriesXml = (/** @type {Array<{ speaker: string, time: string, text: string }>} */ entries) => entries.map((entry) => `
+    <w:p>
+      <w:pPr><w:spacing w:before="40" w:after="40" w:line="276" w:lineRule="auto"/></w:pPr>
+      ${entry.time ? `<w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="555555"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">[${escapeXml(entry.time)}] </w:t></w:r>` : ""}
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${escapeXml(entry.speaker)}: </w:t></w:r>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t xml:space="preserve">${escapeXml(entry.text)}</w:t></w:r>
+    </w:p>`).join("")
+
+    const annexBodyXml = (transcriptEntries.length > 0 || chatEntries.length > 0)
+        ? `${formatAnnexEntriesXml(transcriptEntries)}${chatEntries.length > 0 ? `
+    <w:p>
+      <w:pPr><w:spacing w:before="140" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="047176"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>Mensagens do Chat</w:t></w:r>
+    </w:p>${formatAnnexEntriesXml(chatEntries)}` : ""}`
+        : `
+    <w:p>
+      <w:pPr><w:spacing w:before="40" w:after="80" w:line="276" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="555555"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr><w:t>Transcrição registrada conforme resumo na pauta acima.</w:t></w:r>
+    </w:p>`
 
     const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -1205,6 +1283,7 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
           </w:tcPr>
           <w:p>
             <w:pPr><w:spacing w:before="120" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>
+            <w:bookmarkStart w:id="0" w:name="TopoAta"/><w:bookmarkEnd w:id="0"/>
             <w:r>
               <w:rPr><w:rFonts w:ascii="Antonio" w:cs="Antonio" w:eastAsia="Antonio" w:hAnsi="Antonio"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="112"/><w:szCs w:val="112"/></w:rPr>
               <w:t>ATA DE REUNIÃO</w:t>
@@ -1330,8 +1409,17 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
       <w:pPr><w:spacing w:before="20" w:after="40" w:line="300" w:lineRule="auto"/></w:pPr>
       <w:r>
         <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
-        <w:t xml:space="preserve">Arquivo local da transcrição integral (${transcriptCount} falas, ${chatCount} mensagens de chat): ${escapeXml(transcriptFileLabel)}</w:t>
+        <w:t xml:space="preserve">Registro integral da reunião (${escapeXml(summaryLabel)}).</w:t>
       </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:spacing w:before="20" w:after="60" w:line="300" w:lineRule="auto"/></w:pPr>
+      <w:hyperlink w:anchor="TranscricaoCompleta" w:history="1">
+        <w:r>
+          <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:color w:val="004aad"/><w:u w:val="single"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>
+          <w:t>Consultar Transcrição Completa da Reunião (Anexo I neste documento)</w:t>
+        </w:r>
+      </w:hyperlink>
     </w:p>
     ${transcriptLinkParagraph}
 
@@ -1349,6 +1437,29 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
         <w:t>Diretor:</w:t>
       </w:r>
     </w:p>
+
+    <w:p>
+      <w:r><w:br w:type="page"/></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:spacing w:before="80" w:after="80" w:line="300" w:lineRule="auto"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="6" w:color="047176"/></w:pBdr></w:pPr>
+      <w:bookmarkStart w:id="1" w:name="TranscricaoCompleta"/><w:bookmarkEnd w:id="1"/>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:b/><w:bCs/><w:color w:val="004aad"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>
+        <w:t xml:space="preserve">ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO   </w:t>
+      </w:r>
+      <w:hyperlink w:anchor="TopoAta" w:history="1">
+        <w:r>
+          <w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="047176"/><w:u w:val="single"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>
+          <w:t>↑ Voltar para a Ata</w:t>
+        </w:r>
+      </w:hyperlink>
+    </w:p>
+    <w:p>
+      <w:pPr><w:spacing w:before="20" w:after="80" w:line="276" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Arimo" w:cs="Arimo" w:eastAsia="Arimo" w:hAnsi="Arimo"/><w:color w:val="555555"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>${escapeXml(summaryLabel)}</w:t></w:r>
+    </w:p>
+    ${annexBodyXml}
 
     <w:sectPr>
       <w:pgSz w:h="16845" w:w="11910" w:orient="portrait"/>
@@ -1373,7 +1484,7 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
                 const existingRels = new TextDecoder("utf-8").decode(entryBytes)
                 outputEntries.push({
                     name: entryName,
-                    data: encoder.encode(injectTranscriptHyperlinkRel(existingRels, transcriptAccessInfo.viewUrl))
+                    data: encoder.encode(injectTranscriptHyperlinkRel(existingRels, externalUrl))
                 })
             } else {
                 outputEntries.push({ name: entryName, data: entryBytes })
@@ -1386,7 +1497,7 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
         if (!hasRels) {
             outputEntries.push({
                 name: "word/_rels/document.xml.rels",
-                data: encoder.encode(injectTranscriptHyperlinkRel("", transcriptAccessInfo.viewUrl))
+                data: encoder.encode(injectTranscriptHyperlinkRel("", externalUrl))
             })
         }
 
@@ -1427,7 +1538,7 @@ export function buildAtaDocxBytes(ataData, transcriptAccessInfo = {}, templateEn
     const documentRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  ${hasHyperlink ? `<Relationship Id="rIdTranscript" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(transcriptAccessInfo.viewUrl)}" TargetMode="External"/>` : ""}
+  ${hasHyperlink ? `<Relationship Id="rIdTranscript" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(externalUrl)}" TargetMode="External"/>` : ""}
 </Relationships>`
 
     const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1500,13 +1611,28 @@ export async function buildAtaDocxBlobFromTemplate(ataData, transcriptAccessInfo
 }
 
 /**
- * Builds a print-ready HTML representation of the Ata de Reunião matching the PDF template.
+ * Builds a print-ready HTML representation of the Ata de Reunião matching the MODELO ATA template.
  * @param {AtaData} ataData
- * @param {{ viewUrl?: string, transcriptFileName?: string, transcriptCount?: number, chatCount?: number }} [transcriptAccessInfo]
+ * @param {{
+ *   externalUrl?: string,
+ *   viewUrl?: string,
+ *   transcriptFileName?: string,
+ *   transcriptCount?: number,
+ *   chatCount?: number,
+ *   transcriptEntries?: Array<{ speaker: string, time: string, text: string }>,
+ *   chatEntries?: Array<{ speaker: string, time: string, text: string }>
+ * }} [transcriptAccessInfo]
  * @returns {string}
  */
 export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
-    const hasHyperlink = isSafeLinkUrl(transcriptAccessInfo.viewUrl)
+    const rawExternal = transcriptAccessInfo.externalUrl || transcriptAccessInfo.viewUrl || ""
+    const externalUrl = isSafeLinkUrl(rawExternal) ? rawExternal.trim() : ""
+    const hasHyperlink = Boolean(externalUrl)
+    const transcriptCount = transcriptAccessInfo.transcriptCount ?? (transcriptAccessInfo.transcriptEntries?.length ?? 0)
+    const chatCount = transcriptAccessInfo.chatCount ?? (transcriptAccessInfo.chatEntries?.length ?? 0)
+    const summaryLabel = formatTranscriptCountLabel(transcriptCount, chatCount)
+    const transcriptEntries = Array.isArray(transcriptAccessInfo.transcriptEntries) ? transcriptAccessInfo.transcriptEntries : []
+    const chatEntries = Array.isArray(transcriptAccessInfo.chatEntries) ? transcriptAccessInfo.chatEntries : []
     const participantsHtml = (ataData.participantes || [])
         .map(p => `<div>${escapeHtml(String(p).startsWith("-") ? String(p) : `- ${p}`)}</div>`)
         .join("")
@@ -1564,8 +1690,17 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
       </div>`).join("")
 
     const transcriptLinkHtml = hasHyperlink
-        ? `<p><strong>Link direto na extensão:</strong> <a href="${escapeHtml(transcriptAccessInfo.viewUrl)}" target="_blank">${escapeHtml(transcriptAccessInfo.viewUrl)}</a></p>`
+        ? `<p><strong>Link externo da transcrição:</strong> <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(externalUrl)}</a></p>`
         : ""
+
+    const formatHtmlEntries = (/** @type {Array<{ speaker: string, time: string, text: string }>} */ entries) => entries.map(entry => `
+      <div class="annex-entry">
+        ${entry.time ? `<span class="annex-time">[${escapeHtml(entry.time)}]</span> ` : ""}<strong class="annex-speaker">${escapeHtml(entry.speaker)}:</strong> ${escapeHtml(entry.text)}
+      </div>`).join("")
+
+    const annexBodyHtml = (transcriptEntries.length > 0 || chatEntries.length > 0)
+        ? `${formatHtmlEntries(transcriptEntries)}${chatEntries.length > 0 ? `<h3>Mensagens do Chat</h3>${formatHtmlEntries(chatEntries)}` : ""}`
+        : `<p>Transcrição registrada conforme resumo na pauta acima.</p>`
 
     return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1593,10 +1728,17 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
     li { margin-bottom: 4px; }
     .signature { margin-top: 32px; color: #004AAD; font-weight: 700; font-size: 15px; }
     .signature div { margin-bottom: 6px; }
-    @media print { .no-print { display: none; } body { padding: 0; } }
+    details.transcript-annex { margin-top: 28px; border-top: 2px solid #047176; padding-top: 12px; }
+    details.transcript-annex summary { color: #004AAD; font-weight: 700; font-size: 14px; cursor: pointer; margin-bottom: 10px; }
+    .annex-body { font-size: 12.5px; line-height: 1.5; margin-top: 8px; }
+    .annex-entry { margin-bottom: 6px; }
+    .annex-time { color: #555555; }
+    .annex-speaker { color: #047176; }
+    @media print { .no-print { display: none; } body { padding: 0; } details.transcript-annex { page-break-before: always; } }
   </style>
 </head>
 <body>
+  <div id="topo-ata"></div>
   <h1 class="ata-title">ATA DE REUNIÃO</h1>
   <div class="ata-client">Cliente - ${escapeHtml(ataData.cliente)}</div>
 
@@ -1636,13 +1778,22 @@ export function buildAtaHtml(ataData, transcriptAccessInfo = {}) {
   ${extrasHtml}
 
   <h2>4. ACESSO À TRANSCRIÇÃO COMPLETA</h2>
-  <p>Arquivo local da transcrição integral (${transcriptAccessInfo.transcriptCount ?? 0} falas, ${transcriptAccessInfo.chatCount ?? 0} mensagens de chat): <code>${escapeHtml(transcriptAccessInfo.transcriptFileName || "TranscripTonic/Transcript.txt")}</code></p>
+  <p>Registro integral da reunião (${escapeHtml(summaryLabel)}).</p>
+  <p><a href="#transcricao-completa" onclick="var d=document.getElementById('transcricao-completa');if(d)d.open=true;">📄 Consultar Transcrição Completa da Reunião (Anexo I)</a></p>
   ${transcriptLinkHtml}
 
   <div class="signature">
     <div>Ass</div>
     <div>Diretor:</div>
   </div>
+
+  <details id="transcricao-completa" class="transcript-annex">
+    <summary>ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO (${escapeHtml(summaryLabel)})</summary>
+    <div class="annex-body">
+      ${annexBodyHtml}
+      <p><a href="#topo-ata">↑ Voltar para a Ata</a></p>
+    </div>
+  </details>
 </body>
 </html>`
 }
@@ -1660,20 +1811,40 @@ export function getAtaFileName(meeting, format = "docx") {
 }
 
 /**
- * Builds transcript access metadata linked inside the generated Ata.
+ * Builds transcript access metadata and consolidated transcript/chat entries embedded inside the generated Ata.
  * @param {Meeting} meeting
- * @param {number} index
- * @returns {{ viewUrl: string, transcriptFileName: string, transcriptCount: number, chatCount: number }}
+ * @param {number} [_index]
+ * @returns {{
+ *   externalUrl: string,
+ *   transcriptFileName: string,
+ *   transcriptCount: number,
+ *   chatCount: number,
+ *   transcriptEntries: Array<{ speaker: string, time: string, text: string }>,
+ *   chatEntries: Array<{ speaker: string, time: string, text: string }>
+ * }}
  */
-export function buildTranscriptAccessInfo(meeting, index) {
-    const viewUrl = typeof chrome !== "undefined" && chrome.runtime?.getURL
-        ? chrome.runtime.getURL(`meetings.html?transcript=${index}`)
-        : ""
+export function buildTranscriptAccessInfo(meeting, _index) {
+    const rawExternal = meeting?.transcriptUrl || ""
+    const externalUrl = isSafeLinkUrl(rawExternal) ? rawExternal.trim() : ""
+    const rawTranscript = Array.isArray(meeting?.transcript) ? meeting.transcript : []
+    const rawChat = Array.isArray(meeting?.chatMessages) ? meeting.chatMessages : []
+
+    const transcriptEntries = consolidateTranscriptBlocks(rawTranscript)
+    const chatEntries = rawChat
+        .map((/** @type {ChatMessage} */ msg) => ({
+            speaker: String(msg?.personName || "Participante").trim() || "Participante",
+            time: formatDateTimeBr(msg?.timestamp),
+            text: String(msg?.chatMessageText || "").trim()
+        }))
+        .filter((/** @type {{ text: string }} */ entry) => Boolean(entry.text))
+
     return {
-        viewUrl,
+        externalUrl,
         transcriptFileName: getTranscriptFileName(meeting),
-        transcriptCount: Array.isArray(meeting?.transcript) ? meeting.transcript.length : 0,
-        chatCount: Array.isArray(meeting?.chatMessages) ? meeting.chatMessages.length : 0
+        transcriptCount: rawTranscript.length,
+        chatCount: rawChat.length,
+        transcriptEntries,
+        chatEntries
     }
 }
 

@@ -188,7 +188,7 @@ export function downloadTranscript(index, isWebhookEnabled) {
 
                 // Add branding
                 content += "\n\n---------------\n"
-                content += "Transcript saved using TranscripTonic extension (https://github.com/vivek-nexus/transcriptonic)"
+                content += "Transcript saved using TranscripTonic extension (https://github.com/wescleyj/transcriptonic)"
                 content += "\n---------------"
 
                 const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
@@ -263,14 +263,19 @@ export function postTranscriptToWebhook(index) {
                                 "Content-Type": "application/json"
                             },
                             body: JSON.stringify(webhookData)
-                        }).then(response => {
+                        }).then(async response => {
                             if (!response.ok) {
                                 throw new Error(`Webhook request failed with HTTP status code ${response.status} ${response.statusText}`)
                             }
-                        }).then(() => {
-                            // Update success status.
+                            return response.json().catch(() => null)
+                        }).then((responseData) => {
                             // @ts-ignore - Pointless type error about resultLocal.meetings being undefined, which is already checked above.
-                            resultLocal.meetings[index].webhookPostStatus = "successful"
+                            const meetingEntry = resultLocal.meetings[index]
+                            meetingEntry.webhookPostStatus = "successful"
+                            const candidateUrl = responseData?.transcriptUrl || responseData?.url || responseData?.webViewLink || responseData?.html_url
+                            if (typeof candidateUrl === "string" && /^https?:\/\//i.test(candidateUrl.trim())) {
+                                meetingEntry.transcriptUrl = candidateUrl.trim()
+                            }
                             chrome.storage.local.set({ meetings: resultLocal.meetings }, function () {
                                 resolve("Webhook posted successfully")
                             })

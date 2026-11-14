@@ -46,7 +46,7 @@ export function getTranscriptFileName(meeting) {
     const sanitisedMeetingTitle = getSanitisedMeetingTitle(meeting)
     const formattedTimestamp = getFormattedFileTimestamp(meeting)
     const prefix = meeting?.meetingSoftware ? `${meeting.meetingSoftware} transcript` : "Transcript"
-    return `TranscripTonic/${prefix}-${sanitisedMeetingTitle} at ${formattedTimestamp} on.txt`
+    return `TranscripTonic/${prefix}-${sanitisedMeetingTitle} at ${formattedTimestamp}.txt`
 }
 
 export function checkAndCreateAlarm() {

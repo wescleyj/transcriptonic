@@ -14,12 +14,14 @@ import {
     buildAtaHtml,
     buildTranscriptAccessInfo,
     callGeminiForAta,
+    consolidateTranscriptBlocks,
     extractTextFromDocxBytes,
+    formatTranscriptCountLabel,
     readZipEntries
 } from "../extension/background-script/ata-generator.js"
 import { downloadBlobOrDataUrl } from "../extension/background-script/exporters.js"
 import { requestPlatformPermission } from "../extension/background-script/platforms.js"
-import { isFirefox, openSidePanel } from "../extension/background-script/utils.js"
+import { getTranscriptFileName, isFirefox, openSidePanel } from "../extension/background-script/utils.js"
 import { buildMeetingRowHtml } from "../extension/meetings.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -640,10 +642,16 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         }
 
         const accessInfo = {
-            viewUrl: "chrome-extension://abcdef/meetings.html?transcript=2",
-            transcriptFileName: "TranscripTonic/Google Meet transcript-Test.txt",
+            externalUrl: "https://drive.google.com/file/d/ata-transcript-123/view",
             transcriptCount: 12,
-            chatCount: 3
+            chatCount: 3,
+            transcriptEntries: [
+                { speaker: "Sofia <PM>", time: "21/10/2026; 14:02", text: "Bom dia! Vamos alinhar o cronograma." },
+                { speaker: "Wescley", time: "21/10/2026; 14:05", text: "Combinado, vou abrir a PR no fork." }
+            ],
+            chatEntries: [
+                { speaker: "Sofia <PM>", time: "21/10/2026; 14:10", text: "Link do Figma enviado." }
+            ]
         }
 
         const templateBytes = new Uint8Array(fs.readFileSync(path.join(EXTENSION_DIR, "templates/modelo-ata.docx")))
@@ -703,10 +711,33 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.ok(docXml.includes("2. PAUTA E PONTOS DISCUTIDOS"))
         assert.ok(docXml.includes("3. ENCAMINHAMENTOS E PRÓXIMOS PASSOS"))
         assert.ok(docXml.includes("4. ACESSO À TRANSCRIÇÃO COMPLETA"))
+        assert.ok(docXml.includes("12 falas registradas e 3 mensagens no chat"))
+        assert.ok(docXml.includes(`<w:hyperlink w:anchor="TranscricaoCompleta"`))
+        assert.ok(docXml.includes(`<w:bookmarkStart w:id="1" w:name="TranscricaoCompleta"/>`))
+        assert.ok(docXml.includes("ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO"))
+        assert.ok(docXml.includes("Bom dia! Vamos alinhar o cronograma."))
         assert.ok(docXml.includes("Ass"))
         assert.ok(docXml.includes("Diretor:"))
-        assert.ok(relsXml.includes(`Target="chrome-extension://abcdef/meetings.html?transcript=2"`))
+        assert.ok(relsXml.includes(`Target="https://drive.google.com/file/d/ata-transcript-123/view"`))
         assert.ok(relsXml.includes(`Target="styles.xml"`))
+
+        // Reject moz-extension:// and chrome-extension:// URLs in document.xml.rels
+        const unsafeDocx = await buildAtaDocxBytesFromTemplate(
+            sampleAta,
+            {
+                viewUrl: "moz-extension://f40dbed4/meetings.html?transcript=0",
+                externalUrl: "chrome-extension://abcdef/meetings.html?transcript=0",
+                transcriptCount: 1,
+                chatCount: 0,
+                transcriptEntries: []
+            },
+            templateBytes
+        )
+        const unsafeEntries = await readZipEntries(unsafeDocx)
+        const unsafeRels = Buffer.from(unsafeEntries.get("word/_rels/document.xml.rels")).toString("utf8")
+        assert.equal(unsafeRels.includes("moz-extension://"), false)
+        assert.equal(unsafeRels.includes("chrome-extension://"), false)
+        assert.equal(unsafeRels.includes(`Id="rIdTranscript"`), false)
 
         // Also validate standalone buildAtaDocxBytes without templateBytes
         const standaloneBytes = buildAtaDocxBytes(sampleAta, accessInfo)
@@ -714,7 +745,31 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
         assert.equal(standaloneBytes[1], 0x4b)
     })
 
-    it("escapes XSS and blocks unsafe javascript: links in HTML Ata preview", async () => {
+    it("escapes XSS, builds Anexo I & Portuguese labels, and rejects browser-local extension URLs", async () => {
+        assert.equal(formatTranscriptCountLabel(1, 0), "1 fala registrada")
+        assert.equal(formatTranscriptCountLabel(12, 3), "12 falas registradas e 3 mensagens no chat")
+
+        const consolidated = consolidateTranscriptBlocks([
+            { personName: "Sofia", timestamp: "2026-10-21T14:00:00Z", transcriptText: "Primeira frase." },
+            { personName: "Sofia", timestamp: "2026-10-21T14:00:10Z", transcriptText: "Segunda frase." },
+            { personName: "Wescley", timestamp: "2026-10-21T14:01:00Z", transcriptText: "Resposta." }
+        ])
+        assert.equal(consolidated.length, 2)
+        assert.equal(consolidated[0].speaker, "Sofia")
+        assert.equal(consolidated[0].text, "Primeira frase. Segunda frase.")
+
+        const fileName = getTranscriptFileName({
+            meetingSoftware: "Google Meet",
+            meetingTitle: "Alinhamento",
+            meetingStartTimestamp: "2026-10-21T14:00:00Z",
+            meetingEndTimestamp: "2026-10-21T14:30:00Z",
+            transcript: [],
+            chatMessages: [],
+            webhookPostStatus: "new"
+        })
+        assert.equal(fileName.endsWith(" on.txt"), false)
+        assert.ok(fileName.endsWith(".txt"))
+
         const html = buildAtaHtml(
             {
                 cliente: `<script>alert(1)</script>`,
@@ -729,34 +784,51 @@ describe("DOCX ZIP/XML & HTML Ata generation", () => {
             },
             {
                 viewUrl: "javascript:alert(3)",
-                transcriptFileName: "TranscripTonic/<bad>.txt",
+                externalUrl: "moz-extension://xyz/meetings.html?transcript=0",
                 transcriptCount: 1,
-                chatCount: 0
+                chatCount: 0,
+                transcriptEntries: consolidated
             }
         )
 
         assert.equal(html.includes("<script>alert(1)</script>"), false)
         assert.equal(html.includes("<img src=x"), false)
         assert.equal(html.includes(`href="javascript:`), false)
+        assert.equal(html.includes("moz-extension://"), false)
         assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"))
+        assert.ok(html.includes(`href="#transcricao-completa"`))
+        assert.ok(html.includes("ANEXO I — TRANSCRIÇÃO COMPLETA DA REUNIÃO (1 fala registrada)"))
+        assert.ok(html.includes("Primeira frase. Segunda frase."))
 
-        await withMockedGlobals(
-            { chrome: { runtime: { getURL: (p) => `moz-extension://xyz/${p}` } } },
-            () => {
-                const access = buildTranscriptAccessInfo(
-                    {
-                        meetingSoftware: "Teams",
-                        meetingTitle: "Sync",
-                        meetingStartTimestamp: "2026-10-21T10:00:00Z",
-                        meetingEndTimestamp: "2026-10-21T10:30:00Z",
-                        transcript: [],
-                        chatMessages: [],
-                        webhookPostStatus: "new"
-                    },
-                    4
-                )
-                assert.equal(access.viewUrl, "moz-extension://xyz/meetings.html?transcript=4")
-            }
+        const accessLocal = buildTranscriptAccessInfo(
+            {
+                meetingSoftware: "Teams",
+                meetingTitle: "Sync",
+                meetingStartTimestamp: "2026-10-21T10:00:00Z",
+                meetingEndTimestamp: "2026-10-21T10:30:00Z",
+                transcript: consolidated.map(c => ({ personName: c.speaker, timestamp: "2026-10-21T10:00:00Z", transcriptText: c.text })),
+                chatMessages: [],
+                webhookPostStatus: "new",
+                transcriptUrl: "moz-extension://local-only/meetings.html?transcript=0"
+            },
+            4
         )
+        assert.equal(accessLocal.externalUrl, "")
+        assert.equal(accessLocal.transcriptEntries.length, 2)
+
+        const accessExternal = buildTranscriptAccessInfo(
+            {
+                meetingSoftware: "Teams",
+                meetingTitle: "Sync",
+                meetingStartTimestamp: "2026-10-21T10:00:00Z",
+                meetingEndTimestamp: "2026-10-21T10:30:00Z",
+                transcript: [],
+                chatMessages: [],
+                webhookPostStatus: "successful",
+                transcriptUrl: "https://notion.so/ata-transcricao-123"
+            },
+            4
+        )
+        assert.equal(accessExternal.externalUrl, "https://notion.so/ata-transcricao-123")
     })
 })
